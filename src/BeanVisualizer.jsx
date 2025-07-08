@@ -58,13 +58,20 @@ function parseBeans(text) {
   while ((match = configClassRegex.exec(text)) !== null) {
     const classStart = match.index + match[0].length - 1;
     const configBody = extractClassBody(text, classStart);
-    let beanMatch;
-    while ((beanMatch = beanMethodRegex.exec(configBody)) !== null) {
-      const explicitName = beanMatch[2];
-      const methodName = beanMatch[4];
-      let beanName = explicitName;
-      if (!beanName) beanName = methodName;
-      beans.push({ className: methodName, beanName, type: "bean" });
+    // Solo considerar clases válidas las que tengan llaves de apertura y cierre
+    const declaredClasses = Array.from(text.matchAll(/public\s+class\s+(\w+)\s*\{[\s\S]*?\}/g)).map(m => m[1]);
+    for (const m of configBody.matchAll(/@Bean[\s\S]*?(public|protected|private)?[\s\S]*?\w+\s+(\w+)\s*\([^)]*\)\s*\{([\s\S]*?)\}/g)) {
+      const methodName = m[2];
+      const body = m[3];
+      // Solo agregar el bean si hay return ...; en el cuerpo
+      const returnMatch = body.match(/return\s+new\s+(\w+)\s*\(/);
+      const hasValidReturn = /return[\s\S]*?;/g.test(body);
+      if (hasValidReturn && returnMatch && declaredClasses.includes(returnMatch[1])) {
+        // Buscar nombre explícito
+        const beanTagMatch = m[0].match(/@Bean\s*\((?:\s*value\s*=)?\s*"([^"]+)"\s*\)/);
+        let beanName = beanTagMatch ? beanTagMatch[1] : methodName;
+        beans.push({ className: methodName, beanName, type: "bean" });
+      }
     }
   }
   return beans;
@@ -119,14 +126,28 @@ export default function BeanVisualizer() {
       }
     }
     let missingSemicolon = false;
+    let missingReturn = false;
+    let missingReturnMethods = [];
+    let missingSemicolonMethods = [];
     for (const block of beanMethodBlocks) {
+      // Buscar línea return ... ;
       const returnLines = block.body.match(/return[\s\S]*?;/g);
-      if (!returnLines) {
+      const hasReturn = /return[\s\S]*?/.test(block.body);
+      if (!hasReturn) {
+        missingReturn = true;
+        missingReturnMethods.push(block.methodName);
+      } else if (!returnLines) {
         missingSemicolon = true;
-        break;
+        missingSemicolonMethods.push(block.methodName);
       }
     }
-    setReturnWarning(missingSemicolon ? 'Advertencia: Algún método @Bean no tiene punto y coma (;) al final de la línea return.' : null);
+    setReturnWarning(
+      missingReturn
+        ? `Advertencia: El método @Bean${missingReturnMethods.length > 1 ? 's' : ''} '${missingReturnMethods.join(", ")}' no tiene${missingReturnMethods.length > 1 ? 'n' : ''} una sentencia return.`
+        : missingSemicolon
+        ? `Advertencia: El método @Bean${missingSemicolonMethods.length > 1 ? 's' : ''} '${missingSemicolonMethods.join(", ")}' no tiene${missingSemicolonMethods.length > 1 ? 'n' : ''} punto y coma (;) al final de la línea return.`
+        : null
+    );
     // Advertencia: misma clase, diferentes nombres de bean
     const classToNames = {};
     parsed.forEach(bean => {
@@ -267,9 +288,9 @@ export default function BeanVisualizer() {
   }, [canvasRef]);
 
   return (
-    <div ref={containerRef} style={{ width: "100%", display: "flex", flexDirection: "column" }}>
+    <div ref={containerRef} style={{ width: "100%", display: "flex", flexDirection: "column", alignItems: 'center' }}>
       {/* Bloque 1: Editor de código */}
-      <div style={{ width: "100%", boxSizing: "border-box" }}>
+      <div style={{ width: "100%", boxSizing: "border-box", marginBottom: 16 }}>
         <Editor
           value={code}
           onValueChange={setCode}
@@ -310,44 +331,46 @@ export default function BeanVisualizer() {
         `}</style>
       </div>
       {/* Bloque 2: Advertencias */}
+      {((errors.length > 0) || bracketWarning || returnWarning || multiNameWarning || (missingClassWarnings.length > 0)) && (
+        <div style={{
+          background: "#fff3cd",
+          color: "#856404",
+          border: "1px solid #ffeeba",
+          borderRadius: 8,
+          padding: 16,
+          marginBottom: 16,
+          fontSize: 15,
+          fontFamily: 'monospace',
+          width: '100%',
+          maxWidth: '100%',
+          boxSizing: 'border-box',
+          wordBreak: 'break-word',
+          overflowWrap: 'anywhere',
+          whiteSpace: 'pre-line',
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 12,
+          textAlign: 'left',
+          height: 'auto',
+          minHeight: 0
+        }}>
+          <span style={{fontSize: 22, fontWeight: 'bold', flexShrink: 0, lineHeight: 1.2}}>⚠️</span>
+          <div style={{width: '100%', maxWidth: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line'}}>
+            {errors.map((err, i) => (
+              <div key={i} style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line'}}>{err}</div>
+            ))}
+            {bracketWarning && <div style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line'}}>{bracketWarning}</div>}
+            {returnWarning && <div style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line'}}>{returnWarning}</div>}
+            {multiNameWarning && <div style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line'}}>{multiNameWarning}</div>}
+            {missingClassWarnings.map((w, i) => (
+              <div key={"missingclass"+i} style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line'}}>{w}</div>
+            ))}
+          </div>
+        </div>
+      )}
       {/* Bloque 3: Canvas y slider */}
-      <div style={{ width: "100%", marginTop: 24, boxSizing: "border-box" }}>
-        <div style={{ position: "relative", width: "100%", height: CANVAS_HEIGHT, boxSizing: "border-box" }}>
-          {((errors.length > 0) || bracketWarning || returnWarning || multiNameWarning || (missingClassWarnings.length > 0)) && (
-            <div style={{
-              background: "#fff3cd",
-              color: "#856404",
-              border: "1px solid #ffeeba",
-              borderRadius: 8,
-              padding: 16,
-              marginBottom: 16,
-              fontSize: 15,
-              fontFamily: 'monospace',
-              width: '100%',
-              maxWidth: '100%',
-              boxSizing: 'border-box',
-              wordBreak: 'break-word',
-              overflowWrap: 'break-word',
-              whiteSpace: 'pre-line',
-              display: 'block',
-              textAlign: 'left'
-            }}>
-              <div style={{width: '100%', textAlign: 'center', marginBottom: 8}}>
-                <span style={{fontSize: 22, fontWeight: 'bold'}}>⚠️</span>
-              </div>
-              <div style={{width: '100%', maxWidth: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'break-word', whiteSpace: 'pre-line'}}>
-                {errors.map((err, i) => (
-                  <div key={i} style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'break-word', whiteSpace: 'pre-line'}}>{err}</div>
-                ))}
-                {bracketWarning && <div style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'break-word', whiteSpace: 'pre-line'}}>{bracketWarning}</div>}
-                {returnWarning && <div style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'break-word', whiteSpace: 'pre-line'}}>{returnWarning}</div>}
-                {multiNameWarning && <div style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'break-word', whiteSpace: 'pre-line'}}>{multiNameWarning}</div>}
-                {missingClassWarnings.map((w, i) => (
-                  <div key={"missingclass"+i} style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'break-word', whiteSpace: 'pre-line'}}>{w}</div>
-                ))}
-              </div>
-            </div>
-          )}
+      <div style={{ width: "100%", marginTop: 0, marginBottom: 16 }}>
+        <div style={{ position: "relative", width: "100%", maxWidth: "100%", boxSizing: "border-box", display: 'block' }}>
           <canvas
             ref={canvasRef}
             width={canvasWidth}
