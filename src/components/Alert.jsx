@@ -8,6 +8,7 @@ export default function Alert({
   missingClassWarnings = [],
   autowiredInvalids = [],
   missingAutowiredTypes = [],
+  missingAutowiredMethodTypes = [],
   cycleWarnings = []
 }) {
   if (
@@ -18,6 +19,7 @@ export default function Alert({
     missingClassWarnings.length === 0 &&
     autowiredInvalids.length === 0 &&
     missingAutowiredTypes.length === 0 &&
+    missingAutowiredMethodTypes.length === 0 &&
     cycleWarnings.length === 0
   ) {
     return null;
@@ -61,12 +63,18 @@ export default function Alert({
             Advertencia: @Autowired no es válido en campos static o final: {autowiredInvalids.join(', ')}
           </div>
         )}
-        {missingAutowiredTypes.length > 0 && (
-          <div style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line'}}>
-            Advertencia: @Autowired apunta a un tipo/clase que no existe: {missingAutowiredTypes.join(', ')}
-          </div>
-        )}
-        {cycleWarnings.length > 0 && (
+                    {missingAutowiredTypes.length > 0 && (
+              <div style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line'}}>
+                Advertencia: @Autowired apunta a un tipo/clase que no existe: {missingAutowiredTypes.join(', ')}
+              </div>
+            )}
+
+            {missingAutowiredMethodTypes.length > 0 && (
+              <div style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line'}}>
+                Advertencia: @Autowired en métodos apunta a un tipo/clase que no existe: {missingAutowiredMethodTypes.join(', ')}
+              </div>
+            )}
+            {cycleWarnings.length > 0 && (
           <div style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line', color: '#b30000'}}>
             Advertencia: ¡Referencia circular detectada! Ciclos: {cycleWarnings.map(c => c.join(' → ')).join(' | ')}
           </div>
