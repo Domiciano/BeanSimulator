@@ -397,9 +397,19 @@ export default function BeanVisualizer() {
     });
     // Dibujar wiring (flechas)
     ctx.save();
-    ctx.strokeStyle = "#fff";
     ctx.lineWidth = 2.5;
     ctx.setLineDash([]);
+    // Detectar wiring que forman parte de un ciclo
+    let cycleEdges = new Set();
+    if (cycleWarnings && cycleWarnings.length > 0) {
+      cycleWarnings.forEach(cycle => {
+        for (let i = 0; i < cycle.length - 1; i++) {
+          cycleEdges.add(cycle[i] + '→' + cycle[i+1]);
+        }
+        // Cierre del ciclo
+        cycleEdges.add(cycle[cycle.length-1] + '→' + cycle[0]);
+      });
+    }
     wirings.forEach(wiring => {
       const from = beanPositions[wiring.from];
       const to = beanPositions[wiring.to];
@@ -411,6 +421,9 @@ export default function BeanVisualizer() {
         const startY = from.y + BEAN_RADIUS * Math.sin(angle);
         const endX = to.x - BEAN_RADIUS * Math.cos(angle);
         const endY = to.y - BEAN_RADIUS * Math.sin(angle);
+        // Si el wiring es parte de un ciclo, dibujar en rojo
+        const isCycle = cycleEdges.has(wiring.from + '→' + wiring.to);
+        ctx.strokeStyle = isCycle ? '#e53935' : '#fff';
         ctx.beginPath();
         ctx.moveTo(startX, startY);
         ctx.lineTo(endX, endY);
@@ -420,7 +433,7 @@ export default function BeanVisualizer() {
         ctx.lineTo(endX - 10 * Math.cos(angle - 0.4), endY - 10 * Math.sin(angle - 0.4));
         ctx.lineTo(endX - 10 * Math.cos(angle + 0.4), endY - 10 * Math.sin(angle + 0.4));
         ctx.lineTo(endX, endY);
-        ctx.fillStyle = "#fff";
+        ctx.fillStyle = isCycle ? '#e53935' : '#fff';
         ctx.fill();
       }
     });
