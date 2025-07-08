@@ -77,6 +77,47 @@ function parseBeans(text) {
   return beans;
 }
 
+// Detectar wiring por propiedad con @Autowired
+function parseWirings(text, beans) {
+  // Mapa de nombre de bean a clase
+  const beanNameToClass = {};
+  beans.forEach(bean => {
+    beanNameToClass[bean.beanName] = bean.className;
+  });
+  // Mapa de clase a beanName
+  const classToBeanName = {};
+  beans.forEach(bean => {
+    classToBeanName[bean.className] = bean.beanName;
+  });
+  // Buscar wiring en cada clase
+  const wirings = [];
+  const autowiredInvalids = [];
+  const classRegex = /public\s+class\s+(\w+)\s*\{([\s\S]*?)\}/g;
+  let match;
+  while ((match = classRegex.exec(text)) !== null) {
+    const className = match[1];
+    const classBody = match[2];
+    // Buscar propiedades @Autowired
+    const propRegex = /@Autowired[\s\n\r]*((private|protected|public)?\s*)?((static|final)\s+)?(\w+)\s+(\w+)\s*;/g;
+    let m;
+    while ((m = propRegex.exec(classBody)) !== null) {
+      const modifiers = m[3] || '';
+      const type = m[5];
+      // Buscar bean destino por tipo
+      const targetBeanName = classToBeanName[type];
+      const sourceBeanName = classToBeanName[className];
+      if (modifiers.includes('static') || modifiers.includes('final')) {
+        autowiredInvalids.push(`${className}.${m[6]}`);
+        continue;
+      }
+      if (targetBeanName && sourceBeanName) {
+        wirings.push({ from: sourceBeanName, to: targetBeanName });
+      }
+    }
+  }
+  return { wirings, autowiredInvalids };
+}
+
 const CANVAS_HEIGHT = 600;
 const BEAN_RADIUS = 40;
 const BEAN_GAP = 40;
@@ -100,11 +141,16 @@ export default function BeanVisualizer() {
   const [canvasWidth, setCanvasWidth] = useState(600);
   const containerRef = useRef(null);
   const canvasRef = useRef(null);
+  const [wirings, setWirings] = useState([]);
+  const [autowiredInvalids, setAutowiredInvalids] = useState([]);
 
   useEffect(() => {
     const parsed = parseBeans(code);
     console.log('BEANS DETECTADOS', parsed);
     setBeans(parsed);
+    const wiringResult = parseWirings(code, parsed);
+    setWirings(wiringResult.wirings);
+    setAutowiredInvalids(wiringResult.autowiredInvalids);
     // Advertencia por desbalance de llaves
     const open = (code.match(/\{/g) || []).length;
     const close = (code.match(/\}/g) || []).length;
@@ -208,6 +254,48 @@ export default function BeanVisualizer() {
     ctx.scale(zoom, zoom);
     ctx.translate(-camera.x, -camera.y);
     const PADDING = 24;
+    // Mapa de bean a posición
+    const beanPositions = {};
+    beans.forEach((bean, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const x = PADDING + BEAN_GAP + BEAN_RADIUS + col * (BEAN_RADIUS * 2 + BEAN_GAP);
+      const y = PADDING + BEAN_GAP + BEAN_RADIUS + row * (BEAN_RADIUS * 2 + BEAN_GAP);
+      beanPositions[bean.beanName] = { x, y };
+    });
+    // Dibujar wiring (flechas)
+    ctx.save();
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([]);
+    wirings.forEach(wiring => {
+      const from = beanPositions[wiring.from];
+      const to = beanPositions[wiring.to];
+      if (from && to) {
+        // Flecha simple: línea recta con cabeza
+        const dx = to.x - from.x;
+        const dy = to.y - from.y;
+        const angle = Math.atan2(dy, dx);
+        const startX = from.x + BEAN_RADIUS * Math.cos(angle);
+        const startY = from.y + BEAN_RADIUS * Math.sin(angle);
+        const endX = to.x - BEAN_RADIUS * Math.cos(angle);
+        const endY = to.y - BEAN_RADIUS * Math.sin(angle);
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(endX, endY);
+        ctx.stroke();
+        // Cabeza de flecha
+        ctx.beginPath();
+        ctx.moveTo(endX, endY);
+        ctx.lineTo(endX - 10 * Math.cos(angle - 0.4), endY - 10 * Math.sin(angle - 0.4));
+        ctx.lineTo(endX - 10 * Math.cos(angle + 0.4), endY - 10 * Math.sin(angle + 0.4));
+        ctx.lineTo(endX, endY);
+        ctx.fillStyle = "#fff";
+        ctx.fill();
+      }
+    });
+    ctx.restore();
+    // Dibujar beans
     beans.forEach((bean, i) => {
       const col = i % cols;
       const row = Math.floor(i / cols);
@@ -224,7 +312,7 @@ export default function BeanVisualizer() {
       ctx.fillText(bean.beanName, x, y);
     });
     ctx.restore();
-  }, [beans, camera, zoom, cols, rows, canvasWidth]);
+  }, [beans, camera, zoom, cols, rows, canvasWidth, wirings]);
 
   // Detección de errores: beans o clases con el mismo nombre
   const [errors, setErrors] = useState([]);
@@ -331,7 +419,7 @@ export default function BeanVisualizer() {
         `}</style>
       </div>
       {/* Bloque 2: Advertencias */}
-      {((errors.length > 0) || bracketWarning || returnWarning || multiNameWarning || (missingClassWarnings.length > 0)) && (
+      {((errors.length > 0) || bracketWarning || returnWarning || multiNameWarning || (missingClassWarnings.length > 0) || (autowiredInvalids.length > 0)) && (
         <div style={{
           background: "#fff3cd",
           color: "#856404",
@@ -365,6 +453,11 @@ export default function BeanVisualizer() {
             {missingClassWarnings.map((w, i) => (
               <div key={"missingclass"+i} style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line'}}>{w}</div>
             ))}
+            {autowiredInvalids.length > 0 && (
+              <div style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line'}}>
+                Advertencia: @Autowired no es válido en campos static o final: {autowiredInvalids.join(', ')}
+              </div>
+            )}
           </div>
         </div>
       )}
