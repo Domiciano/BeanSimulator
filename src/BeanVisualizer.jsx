@@ -3,6 +3,11 @@ import Editor from "react-simple-code-editor";
 import Prism from "prismjs";
 import "prismjs/components/prism-java";
 import "prismjs/themes/prism-tomorrow.css";
+import { parseBeans } from "./regex/beanDetection.js";
+import { parseWirings } from "./regex/wiringDetection.js";
+import { detectCycles } from "./regex/cycleDetection.js";
+import { getBeanLevels } from "./regex/layoutCalculation.js";
+import { validateCode } from "./regex/validations.js";
 
 // Colores por tipo de bean
 const BEAN_COLORS = {
@@ -13,187 +18,7 @@ const BEAN_COLORS = {
   bean:      "#00bcd4"    // celeste para beans de configuración
 };
 
-// Extrae el cuerpo de una clase a partir de la posición de la llave de apertura
-function extractClassBody(text, startIdx) {
-  let open = 0;
-  let body = '';
-  let started = false;
-  for (let i = startIdx; i < text.length; i++) {
-    if (text[i] === '{') {
-      open++;
-      started = true;
-    } else if (text[i] === '}') {
-      open--;
-    }
-    if (started) body += text[i];
-    if (started && open === 0) break;
-  }
-  return body;
-}
 
-// Parser mejorado para beans con tags y métodos @Bean
-function parseBeans(text) {
-  // Regex para encontrar clases anotadas
-  const beanRegex = /@(Component|Service|Repository|Controller|RestController)\s*(\((?:\s*value\s*=)?\s*"([^"]+)"\s*\))?\s*public\s+class\s+(\w+)\s*\{/g;
-  const configClassRegex = /@Configuration\s*public\s+class\s+(\w+)\s*\{/g;
-  // Mejorar el regex para métodos @Bean: acepta cualquier visibilidad, cualquier tipo, cualquier contenido entre llaves
-  const beanMethodRegex = /@Bean\s*(\((?:\s*value\s*=)?\s*"([^"]+)"\s*\))?\s*(public|protected|private)?\s*\w+\s+(\w+)\s*\([^)]*\)\s*\{[\s\S]*?return[\s\S]*?\}/g;
-
-  const beans = [];
-  let match;
-  // Beans por anotación de clase
-  while ((match = beanRegex.exec(text)) !== null) {
-    let typeRaw = match[1];
-    const explicitName = match[3];
-    const className = match[4];
-    let type = typeRaw.toLowerCase();
-    if (type === "restcontroller") type = "controller";
-    let beanName = explicitName;
-    if (!beanName) {
-      beanName = className.charAt(0).toLowerCase() + className.slice(1);
-    }
-    beans.push({ className, beanName, type });
-  }
-  // Beans por métodos @Bean en clases @Configuration
-  while ((match = configClassRegex.exec(text)) !== null) {
-    const classStart = match.index + match[0].length - 1;
-    const configBody = extractClassBody(text, classStart);
-    // Solo considerar clases válidas las que tengan llaves de apertura y cierre
-    const declaredClasses = Array.from(text.matchAll(/public\s+class\s+(\w+)\s*\{[\s\S]*?\}/g)).map(m => m[1]);
-    for (const m of configBody.matchAll(/@Bean[\s\S]*?(public|protected|private)?[\s\S]*?\w+\s+(\w+)\s*\([^)]*\)\s*\{([\s\S]*?)\}/g)) {
-      const methodName = m[2];
-      const body = m[3];
-      // Solo agregar el bean si hay return ...; en el cuerpo
-      const returnMatch = body.match(/return\s+new\s+(\w+)\s*\(/);
-      const hasValidReturn = /return[\s\S]*?;/g.test(body);
-      if (hasValidReturn && returnMatch && declaredClasses.includes(returnMatch[1])) {
-        // Buscar nombre explícito
-        const beanTagMatch = m[0].match(/@Bean\s*\((?:\s*value\s*=)?\s*"([^"]+)"\s*\)/);
-        let beanName = beanTagMatch ? beanTagMatch[1] : methodName;
-        beans.push({ className: methodName, beanName, type: "bean" });
-      }
-    }
-  }
-  return beans;
-}
-
-// Detectar wiring por propiedad con @Autowired
-function parseWirings(text, beans) {
-  // Mapa de nombre de bean a clase
-  const beanNameToClass = {};
-  beans.forEach(bean => {
-    beanNameToClass[bean.beanName] = bean.className;
-  });
-  // Mapa de clase a beanName
-  const classToBeanName = {};
-  beans.forEach(bean => {
-    classToBeanName[bean.className] = bean.beanName;
-  });
-  // Buscar wiring en cada clase
-  const wirings = [];
-  const autowiredInvalids = [];
-  const missingAutowiredTypes = [];
-  const classRegex = /public\s+class\s+(\w+)\s*\{([\s\S]*?)\}/g;
-  let match;
-  while ((match = classRegex.exec(text)) !== null) {
-    const className = match[1];
-    const classBody = match[2];
-    // Buscar propiedades @Autowired
-    const propRegex = /@Autowired[\s\n\r]*((private|protected|public)?\s*)?((static|final)\s+)?(\w+)\s+(\w+)\s*;/g;
-    let m;
-    while ((m = propRegex.exec(classBody)) !== null) {
-      const modifiers = m[3] || '';
-      const type = m[5];
-      // Buscar bean destino por tipo
-      const targetBeanName = classToBeanName[type];
-      const sourceBeanName = classToBeanName[className];
-      if (modifiers.includes('static') || modifiers.includes('final')) {
-        autowiredInvalids.push(`${className}.${m[6]}`);
-        continue;
-      }
-      if (!targetBeanName) {
-        missingAutowiredTypes.push(`${className}.${m[6]} → ${type}`);
-        continue;
-      }
-      if (targetBeanName && sourceBeanName) {
-        wirings.push({ from: sourceBeanName, to: targetBeanName });
-      }
-    }
-  }
-  return { wirings, autowiredInvalids, missingAutowiredTypes };
-}
-
-// Detectar ciclos en wiring de beans
-function detectCycles(beans, wirings) {
-  // Grafo dirigido: beanName -> [beanName]
-  const graph = {};
-  beans.forEach(b => { graph[b.beanName] = []; });
-  wirings.forEach(w => {
-    if (graph[w.from]) graph[w.from].push(w.to);
-  });
-  // DFS para detectar ciclos
-  const visited = {};
-  const stack = {};
-  const cycles = [];
-  function dfs(node, path) {
-    if (stack[node]) {
-      // Encontrado ciclo
-      const idx = path.indexOf(node);
-      if (idx !== -1) cycles.push([...path.slice(idx), node]);
-      return;
-    }
-    if (visited[node]) return;
-    visited[node] = true;
-    stack[node] = true;
-    for (const neighbor of graph[node] || []) {
-      dfs(neighbor, [...path, neighbor]);
-    }
-    stack[node] = false;
-  }
-  beans.forEach(b => {
-    dfs(b.beanName, [b.beanName]);
-  });
-  return cycles;
-}
-
-// NUEVO: Calcula niveles de beans según dependencias para layout jerárquico
-function getBeanLevels(beans, wirings) {
-  // Mapa de bean a dependencias entrantes
-  const incoming = {};
-  beans.forEach(b => { incoming[b.beanName] = 0; });
-  wirings.forEach(w => { incoming[w.to] = (incoming[w.to] || 0) + 1; });
-  // Beans sin dependencias entrantes (nivel 0)
-  const levels = [];
-  let currentLevel = beans.filter(b => incoming[b.beanName] === 0).map(b => b.beanName);
-  const assigned = new Set(currentLevel);
-  while (currentLevel.length > 0) {
-    levels.push(currentLevel);
-    // Buscar beans que dependen de los del nivel actual
-    const nextLevel = [];
-    wirings.forEach(w => {
-      if (currentLevel.includes(w.from) && !assigned.has(w.to)) {
-        // Solo agregar si todas sus dependencias ya están en niveles anteriores
-        const froms = wirings.filter(x => x.to === w.to).map(x => x.from);
-        if (froms.every(f => assigned.has(f))) {
-          nextLevel.push(w.to);
-          assigned.add(w.to);
-        }
-      }
-    });
-    // Agregar beans que no tienen wiring pero no han sido asignados
-    beans.forEach(b => {
-      if (!assigned.has(b.beanName) && !wirings.some(w => w.to === b.beanName)) {
-        nextLevel.push(b.beanName);
-        assigned.add(b.beanName);
-      }
-    });
-    currentLevel = Array.from(new Set(nextLevel));
-  }
-  // Si quedan beans no asignados (ciclos), ponerlos en el último nivel
-  const unassigned = beans.filter(b => !assigned.has(b.beanName)).map(b => b.beanName);
-  if (unassigned.length > 0) levels.push(unassigned);
-  return levels;
-}
 
 const CANVAS_HEIGHT = 600;
 const BEAN_RADIUS = 40;
@@ -201,12 +26,7 @@ const BEAN_GAP = 40;
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 2.5;
 
-function getGridLayout(n) {
-  if (n === 0) return { cols: 1, rows: 1 };
-  const cols = Math.ceil(Math.sqrt(n));
-  const rows = Math.ceil(n / cols);
-  return { cols, rows };
-}
+// Elimino getGridLayout porque no se usa
 
 export default function BeanVisualizer() {
   const [code, setCode] = useState(`@Component\npublic class BeanA{}\n\n@Component\npublic class BeanB{}`);
@@ -259,72 +79,12 @@ export default function BeanVisualizer() {
     // Detectar ciclos
     const cycles = detectCycles(parsed, wiringResult.wirings);
     setCycleWarnings(cycles);
-    // Advertencia por desbalance de llaves
-    const open = (code.match(/\{/g) || []).length;
-    const close = (code.match(/\}/g) || []).length;
-    setBracketWarning(open !== close ? `Advertencia: El número de llaves de apertura ({) y cierre (}) no coincide (${open} vs ${close}).` : null);
-    // Advertencia por falta de punto y coma en return de métodos @Bean
-    const beanMethodBlocks = [];
-    const configClassRegex = /@Configuration\s*public\s+class\s+\w+\s*\{/g;
-    let match;
-    while ((match = configClassRegex.exec(code)) !== null) {
-      const classStart = match.index + match[0].length - 1;
-      const configBody = extractClassBody(code, classStart);
-      const beanMethodRegex = /@Bean[\s\S]*?(public|protected|private)?[\s\S]*?\w+\s+(\w+)\s*\([^)]*\)\s*\{([\s\S]*?)\}/g;
-      let m;
-      while ((m = beanMethodRegex.exec(configBody)) !== null) {
-        beanMethodBlocks.push({
-          methodName: m[2],
-          body: m[3]
-        });
-      }
-    }
-    let missingSemicolon = false;
-    let missingReturn = false;
-    let missingReturnMethods = [];
-    let missingSemicolonMethods = [];
-    for (const block of beanMethodBlocks) {
-      // Buscar línea return ... ;
-      const returnLines = block.body.match(/return[\s\S]*?;/g);
-      const hasReturn = /return[\s\S]*?/.test(block.body);
-      if (!hasReturn) {
-        missingReturn = true;
-        missingReturnMethods.push(block.methodName);
-      } else if (!returnLines) {
-        missingSemicolon = true;
-        missingSemicolonMethods.push(block.methodName);
-      }
-    }
-    setReturnWarning(
-      missingReturn
-        ? `Advertencia: El método @Bean${missingReturnMethods.length > 1 ? 's' : ''} '${missingReturnMethods.join(", ")}' no tiene${missingReturnMethods.length > 1 ? 'n' : ''} una sentencia return.`
-        : missingSemicolon
-        ? `Advertencia: El método @Bean${missingSemicolonMethods.length > 1 ? 's' : ''} '${missingSemicolonMethods.join(", ")}' no tiene${missingSemicolonMethods.length > 1 ? 'n' : ''} punto y coma (;) al final de la línea return.`
-        : null
-    );
-    // Advertencia: misma clase, diferentes nombres de bean
-    const classToNames = {};
-    parsed.forEach(bean => {
-      if (!classToNames[bean.className]) classToNames[bean.className] = new Set();
-      classToNames[bean.className].add(bean.beanName);
-    });
-    let multiNameWarning = null;
-    Object.entries(classToNames).forEach(([className, names]) => {
-      if (names.size > 1) {
-        multiNameWarning = `Advertencia: La clase "${className}" está registrada como más de un bean con nombres distintos: ${Array.from(names).join(", ")}.`;
-      }
-    });
-    setMultiNameWarning(multiNameWarning);
-    // Advertencia: return de método @Bean con clase no declarada
-    const declaredClasses = Array.from(code.matchAll(/public\s+class\s+(\w+)/g)).map(m => m[1]);
-    let missingClassWarnings = [];
-    for (const block of beanMethodBlocks) {
-      const returnNew = block.body.match(/return\s+new\s+(\w+)\s*\(/);
-      if (returnNew && !declaredClasses.includes(returnNew[1])) {
-        missingClassWarnings.push(`Advertencia: El método @Bean '${block.methodName}' retorna un objeto de tipo '${returnNew[1]}', pero no existe ninguna clase declarada con ese nombre.`);
-      }
-    }
-    setMissingClassWarnings(missingClassWarnings);
+    // Validaciones usando el módulo
+    const warnings = validateCode(code, parsed);
+    setBracketWarning(warnings.bracketWarning);
+    setReturnWarning(warnings.returnWarning);
+    setMultiNameWarning(warnings.multiNameWarning);
+    setMissingClassWarnings(warnings.missingClassWarnings);
   }, [code]);
 
   // ResizeObserver para el ancho del contenedor
@@ -653,14 +413,14 @@ export default function BeanVisualizer() {
         }}>
           <span style={{fontSize: 22, fontWeight: 'bold', flexShrink: 0, lineHeight: 1.2}}>⚠️</span>
           <div style={{width: '100%', maxWidth: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line'}}>
-            {errors.map((err, i) => (
-              <div key={i} style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line'}}>{err}</div>
+            {errors.map((err, idx) => (
+              <div key={idx} style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line'}}>{err}</div>
             ))}
             {bracketWarning && <div style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line'}}>{bracketWarning}</div>}
             {returnWarning && <div style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line'}}>{returnWarning}</div>}
             {multiNameWarning && <div style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line'}}>{multiNameWarning}</div>}
-            {missingClassWarnings.map((w, i) => (
-              <div key={"missingclass"+i} style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line'}}>{w}</div>
+            {missingClassWarnings.map((w, idx) => (
+              <div key={"missingclass"+idx} style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line'}}>{w}</div>
             ))}
             {autowiredInvalids.length > 0 && (
               <div style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line'}}>
@@ -674,7 +434,7 @@ export default function BeanVisualizer() {
             )}
             {cycleWarnings.length > 0 && (
               <div style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line', color: '#b30000'}}>
-                Advertencia: ¡Referencia circular detectada! Ciclos: {cycleWarnings.map((c,i) => c.join(' → ')).join(' | ')}
+                Advertencia: ¡Referencia circular detectada! Ciclos: {cycleWarnings.map(c => c.join(' → ')).join(' | ')}
               </div>
             )}
           </div>
