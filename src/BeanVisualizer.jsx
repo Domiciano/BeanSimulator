@@ -123,6 +123,39 @@ function parseWirings(text, beans) {
   return { wirings, autowiredInvalids, missingAutowiredTypes };
 }
 
+// Detectar ciclos en wiring de beans
+function detectCycles(beans, wirings) {
+  // Grafo dirigido: beanName -> [beanName]
+  const graph = {};
+  beans.forEach(b => { graph[b.beanName] = []; });
+  wirings.forEach(w => {
+    if (graph[w.from]) graph[w.from].push(w.to);
+  });
+  // DFS para detectar ciclos
+  const visited = {};
+  const stack = {};
+  const cycles = [];
+  function dfs(node, path) {
+    if (stack[node]) {
+      // Encontrado ciclo
+      const idx = path.indexOf(node);
+      if (idx !== -1) cycles.push([...path.slice(idx), node]);
+      return;
+    }
+    if (visited[node]) return;
+    visited[node] = true;
+    stack[node] = true;
+    for (const neighbor of graph[node] || []) {
+      dfs(neighbor, [...path, neighbor]);
+    }
+    stack[node] = false;
+  }
+  beans.forEach(b => {
+    dfs(b.beanName, [b.beanName]);
+  });
+  return cycles;
+}
+
 // NUEVO: Calcula niveles de beans según dependencias para layout jerárquico
 function getBeanLevels(beans, wirings) {
   // Mapa de bean a dependencias entrantes
@@ -194,6 +227,7 @@ export default function BeanVisualizer() {
   // Estado para bean en drag
   const [draggedBean, setDraggedBean] = useState(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [cycleWarnings, setCycleWarnings] = useState([]);
 
   // Asignar posiciones iniciales o reacomodar al cambiar beans o wiring
   useEffect(() => {
@@ -222,6 +256,9 @@ export default function BeanVisualizer() {
     setWirings(wiringResult.wirings);
     setAutowiredInvalids(wiringResult.autowiredInvalids);
     setMissingAutowiredTypes(wiringResult.missingAutowiredTypes);
+    // Detectar ciclos
+    const cycles = detectCycles(parsed, wiringResult.wirings);
+    setCycleWarnings(cycles);
     // Advertencia por desbalance de llaves
     const open = (code.match(/\{/g) || []).length;
     const close = (code.match(/\}/g) || []).length;
@@ -578,7 +615,7 @@ export default function BeanVisualizer() {
         `}</style>
       </div>
       {/* Bloque 2: Advertencias */}
-      {((errors.length > 0) || bracketWarning || returnWarning || multiNameWarning || (missingClassWarnings.length > 0) || (autowiredInvalids.length > 0) || (missingAutowiredTypes.length > 0)) && (
+      {((errors.length > 0) || bracketWarning || returnWarning || multiNameWarning || (missingClassWarnings.length > 0) || (autowiredInvalids.length > 0) || (missingAutowiredTypes.length > 0) || (cycleWarnings.length > 0)) && (
         <div style={{
           background: "#fff3cd",
           color: "#856404",
@@ -620,6 +657,11 @@ export default function BeanVisualizer() {
             {missingAutowiredTypes.length > 0 && (
               <div style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line'}}>
                 Advertencia: @Autowired apunta a un tipo/clase que no existe: {missingAutowiredTypes.join(', ')}
+              </div>
+            )}
+            {cycleWarnings.length > 0 && (
+              <div style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line', color: '#b30000'}}>
+                Advertencia: ¡Referencia circular detectada! Ciclos: {cycleWarnings.map((c,i) => c.join(' → ')).join(' | ')}
               </div>
             )}
           </div>
