@@ -1,13 +1,12 @@
 import React, { useRef, useEffect, useState } from "react";
-import Editor from "react-simple-code-editor";
-import Prism from "prismjs";
-import "prismjs/components/prism-java";
-import "prismjs/themes/prism-tomorrow.css";
 import { parseBeans } from "./regex/beanDetection.js";
 import { parseWirings } from "./regex/wiringDetection.js";
 import { detectCycles } from "./regex/cycleDetection.js";
 import { getBeanLevels } from "./regex/layoutCalculation.js";
 import { validateCode } from "./regex/validations.js";
+import CodeEditor from "./components/CodeEditor.jsx";
+import Alert from "./components/Alert.jsx";
+import Canvas from "./components/Canvas.jsx";
 
 // Colores por tipo de bean
 const BEAN_COLORS = {
@@ -348,32 +347,7 @@ export default function BeanVisualizer() {
     <div ref={containerRef} style={{ width: "100%", display: "flex", flexDirection: "column", alignItems: 'center' }}>
       {/* Bloque 1: Editor de código */}
       <div style={{ width: "100%", boxSizing: "border-box", marginBottom: 16 }}>
-        <Editor
-          value={code}
-          onValueChange={setCode}
-          highlight={code => Prism.highlight(code, Prism.languages.java, "java")}
-          padding={24}
-          textareaId="bean-code-editor"
-          style={{
-            fontFamily: "monospace",
-            fontSize: 16,
-            background: "#2a2a40",
-            color: "#f8f7ff",
-            border: "none",
-            borderRadius: 8,
-            outline: "none",
-            boxShadow: "none",
-            width: "100%",
-            minWidth: 0,
-            maxWidth: "100%",
-            resize: "vertical",
-            boxSizing: "border-box",
-            minHeight: 200,
-            caretColor: "#27ae60"
-          }}
-          preClassName="language-java"
-          spellCheck={false}
-        />
+        <CodeEditor code={code} onChange={setCode} />
         <style>{`
           #bean-code-editor, #bean-code-editor:focus {
             outline: none !important;
@@ -388,124 +362,30 @@ export default function BeanVisualizer() {
         `}</style>
       </div>
       {/* Bloque 2: Advertencias */}
-      {((errors.length > 0) || bracketWarning || returnWarning || multiNameWarning || (missingClassWarnings.length > 0) || (autowiredInvalids.length > 0) || (missingAutowiredTypes.length > 0) || (cycleWarnings.length > 0)) && (
-        <div style={{
-          background: "#fff3cd",
-          color: "#856404",
-          border: "1px solid #ffeeba",
-          borderRadius: 8,
-          padding: 16,
-          marginBottom: 16,
-          fontSize: 15,
-          fontFamily: 'monospace',
-          width: '100%',
-          maxWidth: '100%',
-          boxSizing: 'border-box',
-          wordBreak: 'break-word',
-          overflowWrap: 'anywhere',
-          whiteSpace: 'pre-line',
-          display: 'flex',
-          alignItems: 'flex-start',
-          gap: 12,
-          textAlign: 'left',
-          height: 'auto',
-          minHeight: 0
-        }}>
-          <span style={{fontSize: 22, fontWeight: 'bold', flexShrink: 0, lineHeight: 1.2}}>⚠️</span>
-          <div style={{width: '100%', maxWidth: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line'}}>
-            {errors.map((err, idx) => (
-              <div key={idx} style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line'}}>{err}</div>
-            ))}
-            {bracketWarning && <div style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line'}}>{bracketWarning}</div>}
-            {returnWarning && <div style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line'}}>{returnWarning}</div>}
-            {multiNameWarning && <div style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line'}}>{multiNameWarning}</div>}
-            {missingClassWarnings.map((w, idx) => (
-              <div key={"missingclass"+idx} style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line'}}>{w}</div>
-            ))}
-            {autowiredInvalids.length > 0 && (
-              <div style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line'}}>
-                Advertencia: @Autowired no es válido en campos static o final: {autowiredInvalids.join(', ')}
-              </div>
-            )}
-            {missingAutowiredTypes.length > 0 && (
-              <div style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line'}}>
-                Advertencia: @Autowired apunta a un tipo/clase que no existe: {missingAutowiredTypes.join(', ')}
-              </div>
-            )}
-            {cycleWarnings.length > 0 && (
-              <div style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line', color: '#b30000'}}>
-                Advertencia: ¡Referencia circular detectada! Ciclos: {cycleWarnings.map(c => c.join(' → ')).join(' | ')}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      <Alert
+        errors={errors}
+        bracketWarning={bracketWarning}
+        returnWarning={returnWarning}
+        multiNameWarning={multiNameWarning}
+        missingClassWarnings={missingClassWarnings}
+        autowiredInvalids={autowiredInvalids}
+        missingAutowiredTypes={missingAutowiredTypes}
+        cycleWarnings={cycleWarnings}
+      />
       {/* Bloque 3: Canvas y slider */}
-      <div style={{ width: "100%", marginTop: 0, marginBottom: 16 }}>
-        <div style={{ position: "relative", width: "100%", maxWidth: "100%", boxSizing: "border-box", display: 'block' }}>
-          <canvas
-            ref={canvasRef}
-            width={canvasWidth}
-            height={CANVAS_HEIGHT}
-            style={{
-              border: "none",
-              background: "#22223b",
-              borderRadius: 12,
-              boxShadow: "0 2px 12px #0004",
-              width: "100%",
-              minWidth: 0,
-              maxWidth: "100%",
-              height: CANVAS_HEIGHT,
-              cursor: dragging ? "grabbing" : "grab",
-              display: "block",
-              boxSizing: "border-box"
-            }}
-            onMouseDown={handleMouseDown}
-            onMouseUp={handleMouseUp}
-            onMouseLeave={handleMouseUp}
-            onMouseMove={handleMouseMove}
-            tabIndex={0}
-          />
-          {/* Slider de zoom flotante */}
-          <div style={{
-            position: "absolute",
-            bottom: 20,
-            right: 20,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            zIndex: 2,
-            background: "rgba(34,34,59,0.7)",
-            borderRadius: 10,
-            padding: "8px 4px",
-            boxShadow: "0 1px 4px #0004"
-          }}>
-            <input
-              type="range"
-              min={MIN_ZOOM}
-              max={MAX_ZOOM}
-              step={0.01}
-              value={zoom}
-              onChange={e => setZoom(Number(e.target.value))}
-              orient="vertical"
-              style={{
-                writingMode: "bt-lr",
-                WebkitAppearance: "slider-vertical",
-                width: 6,
-                height: 80,
-                background: "#444",
-                borderRadius: 6,
-                outline: "none",
-                accentColor: "#27ae60",
-                margin: 0,
-                cursor: "pointer"
-              }}
-              aria-label="Zoom"
-            />
-            <span style={{ color: "#f8f7ff", fontSize: 12, marginTop: 4, fontFamily: 'monospace', opacity: 0.8 }}>{zoom.toFixed(2)}x</span>
-          </div>
-        </div>
-      </div>
+      <Canvas
+        zoom={zoom}
+        canvasWidth={canvasWidth}
+        handleMouseDown={handleMouseDown}
+        handleMouseUp={handleMouseUp}
+        handleMouseMove={handleMouseMove}
+        canvasRef={canvasRef}
+        MIN_ZOOM={MIN_ZOOM}
+        MAX_ZOOM={MAX_ZOOM}
+        setZoom={setZoom}
+        CANVAS_HEIGHT={CANVAS_HEIGHT}
+        dragging={dragging}
+      />
       {tooltip && (
         <div style={{
           position: 'fixed',
