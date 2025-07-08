@@ -118,6 +118,45 @@ function parseWirings(text, beans) {
   return { wirings, autowiredInvalids };
 }
 
+// NUEVO: Calcula niveles de beans según dependencias para layout jerárquico
+function getBeanLevels(beans, wirings) {
+  // Mapa de bean a dependencias entrantes
+  const incoming = {};
+  beans.forEach(b => { incoming[b.beanName] = 0; });
+  wirings.forEach(w => { incoming[w.to] = (incoming[w.to] || 0) + 1; });
+  // Beans sin dependencias entrantes (nivel 0)
+  const levels = [];
+  let currentLevel = beans.filter(b => incoming[b.beanName] === 0).map(b => b.beanName);
+  const assigned = new Set(currentLevel);
+  while (currentLevel.length > 0) {
+    levels.push(currentLevel);
+    // Buscar beans que dependen de los del nivel actual
+    const nextLevel = [];
+    wirings.forEach(w => {
+      if (currentLevel.includes(w.from) && !assigned.has(w.to)) {
+        // Solo agregar si todas sus dependencias ya están en niveles anteriores
+        const froms = wirings.filter(x => x.to === w.to).map(x => x.from);
+        if (froms.every(f => assigned.has(f))) {
+          nextLevel.push(w.to);
+          assigned.add(w.to);
+        }
+      }
+    });
+    // Agregar beans que no tienen wiring pero no han sido asignados
+    beans.forEach(b => {
+      if (!assigned.has(b.beanName) && !wirings.some(w => w.to === b.beanName)) {
+        nextLevel.push(b.beanName);
+        assigned.add(b.beanName);
+      }
+    });
+    currentLevel = Array.from(new Set(nextLevel));
+  }
+  // Si quedan beans no asignados (ciclos), ponerlos en el último nivel
+  const unassigned = beans.filter(b => !assigned.has(b.beanName)).map(b => b.beanName);
+  if (unassigned.length > 0) levels.push(unassigned);
+  return levels;
+}
+
 const CANVAS_HEIGHT = 600;
 const BEAN_RADIUS = 40;
 const BEAN_GAP = 40;
@@ -143,6 +182,7 @@ export default function BeanVisualizer() {
   const canvasRef = useRef(null);
   const [wirings, setWirings] = useState([]);
   const [autowiredInvalids, setAutowiredInvalids] = useState([]);
+  const [tooltip, setTooltip] = useState(null);
 
   useEffect(() => {
     const parsed = parseBeans(code);
@@ -233,17 +273,26 @@ export default function BeanVisualizer() {
   }, []);
 
   // Calcular cuadrícula y espacio virtual
-  const { cols, rows } = getGridLayout(beans.length);
-  const virtualWidth = cols * (BEAN_RADIUS * 2 + BEAN_GAP) + BEAN_GAP;
-  const virtualHeight = rows * (BEAN_RADIUS * 2 + BEAN_GAP) + BEAN_GAP;
+  // Usar layout jerárquico para calcular virtualHeight (independiente del zoom)
+  const levels = getBeanLevels(beans, wirings);
+  const BEAN_ROW_HEIGHT = 2 * BEAN_RADIUS; // alto real de cada fila
+  const LEVEL_VERTICAL_PADDING = 48; // separación visual extra entre filas (mucho menor)
+  const PADDING = 24;
+  // El alto virtual es la suma de los altos de las filas más el padding extra
+  const virtualHeight = levels.length > 0
+    ? levels.length * BEAN_ROW_HEIGHT + (levels.length - 1) * LEVEL_VERTICAL_PADDING + 2 * PADDING
+    : CANVAS_HEIGHT;
+  const virtualWidth = Math.max(canvasWidth, canvasWidth);
 
   // Centrar la cámara al inicio o cuando cambian los beans o el ancho
   useEffect(() => {
+    const maxX = Math.max(0, virtualWidth - canvasWidth / zoom);
+    const maxY = Math.max(0, virtualHeight - CANVAS_HEIGHT / zoom);
     setCamera({
-      x: (virtualWidth - canvasWidth / zoom) / 2,
-      y: (virtualHeight - CANVAS_HEIGHT / zoom) / 2
+      x: maxX === 0 ? (virtualWidth - canvasWidth / zoom) / 2 : Math.max(0, Math.min(maxX, (virtualWidth - canvasWidth / zoom) / 2)),
+      y: maxY === 0 ? (virtualHeight - CANVAS_HEIGHT / zoom) / 2 : Math.max(0, Math.min(maxY, (virtualHeight - CANVAS_HEIGHT / zoom) / 2))
     });
-  }, [beans.length, zoom, canvasWidth]);
+  }, [beans.length, zoom, canvasWidth, virtualWidth, virtualHeight]);
 
   // Dibujo
   useEffect(() => {
@@ -254,14 +303,40 @@ export default function BeanVisualizer() {
     ctx.scale(zoom, zoom);
     ctx.translate(-camera.x, -camera.y);
     const PADDING = 24;
-    // Mapa de bean a posición
-    const beanPositions = {};
-    beans.forEach((bean, i) => {
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      const x = PADDING + BEAN_GAP + BEAN_RADIUS + col * (BEAN_RADIUS * 2 + BEAN_GAP);
-      const y = PADDING + BEAN_GAP + BEAN_RADIUS + row * (BEAN_RADIUS * 2 + BEAN_GAP);
-      beanPositions[bean.beanName] = { x, y };
+    // NUEVO: Layout por niveles
+    const levels = getBeanLevels(beans, wirings);
+    // Usar LEVEL_VERTICAL_PADDING global
+    const beanPositions = [];
+    levels.forEach((level, row) => {
+      const n = level.length;
+      const y = PADDING + BEAN_ROW_HEIGHT / 2 + row * (BEAN_ROW_HEIGHT + LEVEL_VERTICAL_PADDING);
+      level.forEach((beanName, i) => {
+        const x = PADDING + (canvasWidth - 2 * PADDING) * (i + 1) / (n + 1);
+        const bean = beans.find(b => b.beanName === beanName);
+        // Dibuja el círculo
+        ctx.beginPath();
+        ctx.arc(x, y, BEAN_RADIUS, 0, 2 * Math.PI);
+        ctx.fillStyle = BEAN_COLORS[bean.type] || BEAN_COLORS.component;
+        ctx.fill();
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        // Dibuja el nombre del bean con elipsis si es muy largo
+        ctx.font = 'bold 14px sans-serif';
+        ctx.fillStyle = '#222';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        let displayName = bean.beanName;
+        let maxWidth = BEAN_RADIUS * 1.7;
+        if (ctx.measureText(displayName).width > maxWidth) {
+          while (displayName.length > 0 && ctx.measureText(displayName + '...').width > maxWidth) {
+            displayName = displayName.slice(0, -1);
+          }
+          displayName += '...';
+        }
+        ctx.fillText(displayName, x, y);
+        beanPositions.push({ x, y, r: BEAN_RADIUS, name: bean.beanName });
+      });
     });
     // Dibujar wiring (flechas)
     ctx.save();
@@ -269,8 +344,8 @@ export default function BeanVisualizer() {
     ctx.lineWidth = 2.5;
     ctx.setLineDash([]);
     wirings.forEach(wiring => {
-      const from = beanPositions[wiring.from];
-      const to = beanPositions[wiring.to];
+      const from = beanPositions.find(pos => pos.name === wiring.from);
+      const to = beanPositions.find(pos => pos.name === wiring.to);
       if (from && to) {
         // Flecha simple: línea recta con cabeza
         const dx = to.x - from.x;
@@ -295,24 +370,8 @@ export default function BeanVisualizer() {
       }
     });
     ctx.restore();
-    // Dibujar beans
-    beans.forEach((bean, i) => {
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      const x = PADDING + BEAN_GAP + BEAN_RADIUS + col * (BEAN_RADIUS * 2 + BEAN_GAP);
-      const y = PADDING + BEAN_GAP + BEAN_RADIUS + row * (BEAN_RADIUS * 2 + BEAN_GAP);
-      ctx.beginPath();
-      ctx.arc(x, y, BEAN_RADIUS, 0, 2 * Math.PI);
-      ctx.fillStyle = BEAN_COLORS[bean.type] || BEAN_COLORS.component;
-      ctx.fill();
-      ctx.fillStyle = "#f8f7ff";
-      ctx.font = `bold 16px sans-serif`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(bean.beanName, x, y);
-    });
     ctx.restore();
-  }, [beans, camera, zoom, cols, rows, canvasWidth, wirings]);
+  }, [beans, camera, zoom, canvasWidth, wirings]);
 
   // Detección de errores: beans o clases con el mismo nombre
   const [errors, setErrors] = useState([]);
@@ -349,10 +408,17 @@ export default function BeanVisualizer() {
     if (!dragging) return;
     const dx = (e.nativeEvent.offsetX - lastMouse.x) / zoom;
     const dy = (e.nativeEvent.offsetY - lastMouse.y) / zoom;
-    setCamera(cam => ({
-      x: Math.max(0, Math.min(virtualWidth - canvasWidth / zoom, cam.x - dx)),
-      y: Math.max(0, Math.min(virtualHeight - CANVAS_HEIGHT / zoom, cam.y - dy))
-    }));
+    const maxX = Math.max(0, virtualWidth - canvasWidth / zoom);
+    const maxY = Math.max(0, virtualHeight - CANVAS_HEIGHT / zoom);
+    setCamera(cam => {
+      let newX = cam.x - dx;
+      let newY = cam.y - dy;
+      if (maxX === 0) newX = (virtualWidth - canvasWidth / zoom) / 2;
+      else newX = Math.max(0, Math.min(maxX, newX));
+      if (maxY === 0) newY = (virtualHeight - CANVAS_HEIGHT / zoom) / 2;
+      else newY = Math.max(0, Math.min(maxY, newY));
+      return { x: newX, y: newY };
+    });
     setLastMouse({ x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY });
   }
 
@@ -374,6 +440,49 @@ export default function BeanVisualizer() {
       canvas.removeEventListener('wheel', wheelHandler, { passive: false });
     };
   }, [canvasRef]);
+
+  // Mousemove para tooltip sobre beans
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    function handleTooltipMove(e) {
+      if (dragging) {
+        setTooltip(null);
+        return;
+      }
+      const rect = canvas.getBoundingClientRect();
+      // Coordenadas relativas al canvas (corregido para zoom)
+      const mx = (e.clientX - rect.left) * (canvas.width / rect.width) / zoom + camera.x;
+      const my = (e.clientY - rect.top) * (canvas.height / rect.height) / zoom + camera.y;
+      // Recalcular posiciones de beans
+      const levels = getBeanLevels(beans, wirings);
+      // Usar LEVEL_VERTICAL_PADDING global
+      const PADDING = 24;
+      let found = null;
+      levels.forEach((level, row) => {
+        const n = level.length;
+        const y = PADDING + BEAN_ROW_HEIGHT / 2 + row * (BEAN_ROW_HEIGHT + LEVEL_VERTICAL_PADDING);
+        level.forEach((beanName, i) => {
+          const x = PADDING + (canvasWidth - 2 * PADDING) * (i + 1) / (n + 1);
+          const dx = mx - x;
+          const dy = my - y;
+          if (dx * dx + dy * dy <= BEAN_RADIUS * BEAN_RADIUS) {
+            found = { name: beanName, x: e.clientX, y: e.clientY };
+          }
+        });
+      });
+      setTooltip(found);
+    }
+    function handleTooltipLeave() {
+      setTooltip(null);
+    }
+    canvas.addEventListener('mousemove', handleTooltipMove);
+    canvas.addEventListener('mouseleave', handleTooltipLeave);
+    return () => {
+      canvas.removeEventListener('mousemove', handleTooltipMove);
+      canvas.removeEventListener('mouseleave', handleTooltipLeave);
+    };
+  }, [beans, zoom, camera, dragging, canvasWidth, wirings]);
 
   return (
     <div ref={containerRef} style={{ width: "100%", display: "flex", flexDirection: "column", alignItems: 'center' }}>
@@ -527,6 +636,23 @@ export default function BeanVisualizer() {
           </div>
         </div>
       </div>
+      {tooltip && (
+        <div style={{
+          position: 'fixed',
+          left: tooltip.x + 10,
+          top: tooltip.y + 10,
+          background: 'rgba(30,30,30,0.95)',
+          color: '#fff',
+          padding: '6px 12px',
+          borderRadius: 6,
+          fontSize: 14,
+          pointerEvents: 'none',
+          zIndex: 1000,
+          maxWidth: 320,
+          whiteSpace: 'pre-line',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.18)'
+        }}>{tooltip.name}</div>
+      )}
     </div>
   );
 } 
