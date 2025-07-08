@@ -195,31 +195,23 @@ export default function BeanVisualizer() {
   const [draggedBean, setDraggedBean] = useState(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
 
-  // Asignar posiciones iniciales al cargar beans o tamaño
+  // Asignar posiciones iniciales o reacomodar al cambiar beans o wiring
   useEffect(() => {
     if (beans.length === 0) return;
-    // Solo asignar si no hay posiciones guardadas para estos beans
-    setBeanPositions(prev => {
-      const newPositions = { ...prev };
-      const BEAN_ROW_HEIGHT = 2 * BEAN_RADIUS;
-      const PADDING = 24;
-      const levels = getBeanLevels(beans, wirings);
-      levels.forEach((level, row) => {
-        const n = level.length;
-        const y = PADDING + BEAN_ROW_HEIGHT / 2 + row * (BEAN_ROW_HEIGHT + LEVEL_VERTICAL_PADDING);
-        level.forEach((beanName, i) => {
-          if (!newPositions[beanName]) {
-            const x = PADDING + (canvasWidth - 2 * PADDING) * (i + 1) / (n + 1);
-            newPositions[beanName] = { x, y };
-          }
-        });
+    // Siempre reacomodar todos los beans al cambiar el grafo
+    const newPositions = {};
+    const BEAN_ROW_HEIGHT = 2 * BEAN_RADIUS;
+    const PADDING = 24;
+    const levels = getBeanLevels(beans, wirings);
+    levels.forEach((level, row) => {
+      const n = level.length;
+      const y = PADDING + BEAN_ROW_HEIGHT / 2 + row * (BEAN_ROW_HEIGHT + LEVEL_VERTICAL_PADDING);
+      level.forEach((beanName, i) => {
+        const x = PADDING + (canvasWidth - 2 * PADDING) * (i + 1) / (n + 1);
+        newPositions[beanName] = { x, y };
       });
-      // Eliminar posiciones de beans que ya no existen
-      Object.keys(newPositions).forEach(name => {
-        if (!beans.find(b => b.beanName === name)) delete newPositions[name];
-      });
-      return newPositions;
     });
+    setBeanPositions(newPositions);
   }, [beans, canvasWidth, wirings]);
 
   useEffect(() => {
