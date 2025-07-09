@@ -1,17 +1,17 @@
 import { extractClassBody } from './beanDetection.js';
 
-// Detectar wiring por métodos @Autowired (sin validar contenido)
-export function parseMethodWirings(text, beans) {
+// Detectar wiring por inyección de constructor (nombre exacto)
+export function parseConstructorWirings(text, beans) {
   // Mapa de clase a beanName
   const classToBeanName = {};
   beans.forEach(bean => {
     classToBeanName[bean.className] = bean.beanName;
   });
 
-  const methodWirings = [];
-  const missingAutowiredMethodTypes = [];
+  const constructorWirings = [];
+  const missingConstructorTypes = [];
 
-  // Buscar clases y sus métodos
+  // Buscar clases
   const classRegex = /public\s+class\s+(\w+)\s*\{/g;
   let match;
   while ((match = classRegex.exec(text)) !== null) {
@@ -21,12 +21,13 @@ export function parseMethodWirings(text, beans) {
     const sourceBeanName = classToBeanName[className];
     if (!sourceBeanName) continue;
 
-    // Regex para métodos @Autowired con múltiples parámetros
-    const methodRegex = /@Autowired\s+public\s+void\s+(\w+)\s*\(([^)]*)\)/g;
-    let methodMatch;
-    while ((methodMatch = methodRegex.exec(classBody)) !== null) {
-      const methodName = methodMatch[1];
-      const paramsString = methodMatch[2];
+    // 1. Constructor público con o sin @Autowired (nombre exacto)
+    const ctorRegex = /(@Autowired\s*)?public\s+(\w+)\s*\(([^)]*)\)/g;
+    let ctorMatch;
+    while ((ctorMatch = ctorRegex.exec(classBody)) !== null) {
+      const ctorName = ctorMatch[2];
+      if (ctorName !== className) continue; // Solo wiring si el nombre coincide exactamente
+      const paramsString = ctorMatch[3];
       const params = paramsString.split(',').map(p => p.trim()).filter(Boolean);
       for (const param of params) {
         const paramMatch = param.match(/(\w+)\s+(\w+)/);
@@ -35,13 +36,12 @@ export function parseMethodWirings(text, beans) {
         const paramName = paramMatch[2];
         const targetBeanName = classToBeanName[paramType];
         if (!targetBeanName) {
-          missingAutowiredMethodTypes.push(`${className}.${methodName}(${paramType} ${paramName})`);
+          missingConstructorTypes.push(`${className}(constructor)(${paramType} ${paramName})`);
           continue;
         }
-        methodWirings.push({
+        constructorWirings.push({
           from: sourceBeanName,
           to: targetBeanName,
-          method: methodName,
           paramType,
           paramName
         });
@@ -49,7 +49,7 @@ export function parseMethodWirings(text, beans) {
     }
   }
   return {
-    methodWirings,
-    missingAutowiredMethodTypes
+    constructorWirings,
+    missingConstructorTypes
   };
 } 

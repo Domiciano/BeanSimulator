@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState } from "react";
 import { parseBeans } from "./regex/beanDetection.js";
 import { parseWirings } from "./regex/wiringDetection.js";
 import { parseMethodWirings } from "./regex/methodWiringDetection.js";
+import { parseConstructorWirings } from "./regex/constructorWiringDetection.js";
 import { detectCycles } from "./regex/cycleDetection.js";
 import { getBeanLevels } from "./regex/layoutCalculation.js";
 import { validateCode } from "./regex/validations.js";
@@ -43,6 +44,8 @@ export default function BeanVisualizer() {
   const [missingAutowiredTypes, setMissingAutowiredTypes] = useState([]);
   const [methodWirings, setMethodWirings] = useState([]);
   const [missingAutowiredMethodTypes, setMissingAutowiredMethodTypes] = useState([]);
+  const [constructorWirings, setConstructorWirings] = useState([]);
+  const [missingConstructorTypes, setMissingConstructorTypes] = useState([]);
   const [tooltip, setTooltip] = useState(null);
   // Estado para posiciones de beans (por nombre)
   const [beanPositions, setBeanPositions] = useState({});
@@ -58,7 +61,7 @@ export default function BeanVisualizer() {
     const newPositions = {};
     const BEAN_ROW_HEIGHT = 2 * BEAN_RADIUS;
     const PADDING = 24;
-    const allWirings = [...wirings, ...methodWirings];
+    const allWirings = [...wirings, ...methodWirings, ...constructorWirings];
     const levels = getBeanLevels(beans, allWirings);
     levels.forEach((level, row) => {
       const n = level.length;
@@ -69,7 +72,7 @@ export default function BeanVisualizer() {
       });
     });
     setBeanPositions(newPositions);
-  }, [beans, canvasWidth, wirings, methodWirings]);
+  }, [beans, canvasWidth, wirings, methodWirings, constructorWirings]);
 
   useEffect(() => {
     const parsed = parseBeans(code);
@@ -87,8 +90,17 @@ export default function BeanVisualizer() {
     setMethodWirings(methodWiringResult.methodWirings);
     setMissingAutowiredMethodTypes(methodWiringResult.missingAutowiredMethodTypes);
     
+    // Wiring por constructor
+    const constructorWiringResult = parseConstructorWirings(code, parsed);
+    setConstructorWirings(constructorWiringResult.constructorWirings);
+    setMissingConstructorTypes(constructorWiringResult.missingConstructorTypes);
+    
     // Combinar todos los wirings para detectar ciclos
-    const allWirings = [...wiringResult.wirings, ...methodWiringResult.methodWirings];
+    const allWirings = [
+      ...wiringResult.wirings,
+      ...methodWiringResult.methodWirings,
+      ...constructorWiringResult.constructorWirings
+    ];
     const cycles = detectCycles(parsed, allWirings);
     setCycleWarnings(cycles);
     
@@ -115,7 +127,7 @@ export default function BeanVisualizer() {
 
   // Calcular cuadrícula y espacio virtual
   // Usar layout jerárquico para calcular virtualHeight (independiente del zoom)
-  const allWirings = [...wirings, ...methodWirings];
+  const allWirings = [...wirings, ...methodWirings, ...constructorWirings];
   const levels = getBeanLevels(beans, allWirings);
   const BEAN_ROW_HEIGHT = 2 * BEAN_RADIUS; // alto real de cada fila
   const LEVEL_VERTICAL_PADDING = 48; // separación visual extra entre filas (mucho menor)
@@ -173,18 +185,16 @@ export default function BeanVisualizer() {
     ctx.save();
     ctx.lineWidth = 2.5;
     ctx.setLineDash([]);
-    // Detectar wiring que forman parte de un ciclo
     let cycleEdges = new Set();
     if (cycleWarnings && cycleWarnings.length > 0) {
       cycleWarnings.forEach(cycle => {
         for (let i = 0; i < cycle.length - 1; i++) {
           cycleEdges.add(cycle[i] + '→' + cycle[i+1]);
         }
-        // Cierre del ciclo
         cycleEdges.add(cycle[cycle.length-1] + '→' + cycle[0]);
       });
     }
-    // Dibujar wirings por campos
+    // Wirings por campos (blanco)
     wirings.forEach(wiring => {
       const from = beanPositions[wiring.from];
       const to = beanPositions[wiring.to];
@@ -196,7 +206,6 @@ export default function BeanVisualizer() {
         const startY = from.y + BEAN_RADIUS * Math.sin(angle);
         const endX = to.x - BEAN_RADIUS * Math.cos(angle);
         const endY = to.y - BEAN_RADIUS * Math.sin(angle);
-        // Si el wiring es parte de un ciclo, dibujar en rojo
         const isCycle = cycleEdges.has(wiring.from + '→' + wiring.to);
         ctx.strokeStyle = isCycle ? '#e53935' : '#fff';
         ctx.beginPath();
@@ -212,8 +221,7 @@ export default function BeanVisualizer() {
         ctx.fill();
       }
     });
-    
-    // Dibujar wirings por métodos (en color diferente)
+    // Wirings por métodos (naranja)
     methodWirings.forEach(wiring => {
       const from = beanPositions[wiring.from];
       const to = beanPositions[wiring.to];
@@ -225,9 +233,8 @@ export default function BeanVisualizer() {
         const startY = from.y + BEAN_RADIUS * Math.sin(angle);
         const endX = to.x - BEAN_RADIUS * Math.cos(angle);
         const endY = to.y - BEAN_RADIUS * Math.sin(angle);
-        // Si el wiring es parte de un ciclo, dibujar en rojo
         const isCycle = cycleEdges.has(wiring.from + '→' + wiring.to);
-        ctx.strokeStyle = isCycle ? '#e53935' : '#ff9800'; // Naranja para métodos
+        ctx.strokeStyle = isCycle ? '#e53935' : '#ff9800';
         ctx.beginPath();
         ctx.moveTo(startX, startY);
         ctx.lineTo(endX, endY);
@@ -241,9 +248,36 @@ export default function BeanVisualizer() {
         ctx.fill();
       }
     });
+    // Wirings por constructor (azul)
+    constructorWirings.forEach(wiring => {
+      const from = beanPositions[wiring.from];
+      const to = beanPositions[wiring.to];
+      if (from && to) {
+        const dx = to.x - from.x;
+        const dy = to.y - from.y;
+        const angle = Math.atan2(dy, dx);
+        const startX = from.x + BEAN_RADIUS * Math.cos(angle);
+        const startY = from.y + BEAN_RADIUS * Math.sin(angle);
+        const endX = to.x - BEAN_RADIUS * Math.cos(angle);
+        const endY = to.y - BEAN_RADIUS * Math.sin(angle);
+        const isCycle = cycleEdges.has(wiring.from + '→' + wiring.to);
+        ctx.strokeStyle = isCycle ? '#e53935' : '#2980b9';
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(endX, endY);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(endX, endY);
+        ctx.lineTo(endX - 10 * Math.cos(angle - 0.4), endY - 10 * Math.sin(angle - 0.4));
+        ctx.lineTo(endX - 10 * Math.cos(angle + 0.4), endY - 10 * Math.sin(angle + 0.4));
+        ctx.lineTo(endX, endY);
+        ctx.fillStyle = isCycle ? '#e53935' : '#2980b9';
+        ctx.fill();
+      }
+    });
     ctx.restore();
     ctx.restore();
-  }, [beans, beanPositions, camera, zoom, canvasWidth, wirings, methodWirings]);
+  }, [beans, beanPositions, camera, zoom, canvasWidth, wirings, methodWirings, constructorWirings]);
 
   // Detección de errores: beans o clases con el mismo nombre
   const [errors, setErrors] = useState([]);
@@ -359,7 +393,7 @@ export default function BeanVisualizer() {
       const mx = (e.clientX - rect.left) * (canvasRef.current.width / rect.width) / zoom + camera.x;
       const my = (e.clientY - rect.top) * (canvasRef.current.height / rect.height) / zoom + camera.y;
       // Recalcular posiciones de beans
-      const levels = getBeanLevels(beans, wirings);
+      const levels = getBeanLevels(beans, allWirings);
       // Usar LEVEL_VERTICAL_PADDING global
       const PADDING = 24;
       let found = null;
@@ -386,7 +420,7 @@ export default function BeanVisualizer() {
       canvas.removeEventListener('mousemove', handleTooltipMove);
       canvas.removeEventListener('mouseleave', handleTooltipLeave);
     };
-  }, [beans, zoom, camera, dragging, canvasWidth, wirings, methodWirings]);
+  }, [beans, zoom, camera, dragging, canvasWidth, wirings, methodWirings, constructorWirings]);
 
   return (
     <div ref={containerRef} style={{ width: "100%", display: "flex", flexDirection: "column", alignItems: 'center' }}>
@@ -416,6 +450,8 @@ export default function BeanVisualizer() {
         autowiredInvalids={autowiredInvalids}
         missingAutowiredTypes={missingAutowiredTypes}
         missingAutowiredMethodTypes={missingAutowiredMethodTypes}
+        missingConstructorTypes={missingConstructorTypes}
+        unassignedConstructorParams={constructorWirings.length ? parseConstructorWirings(code, beans).unassignedConstructorParams : []}
         cycleWarnings={cycleWarnings}
       />
       {/* Bloque 3: Canvas y slider */}
