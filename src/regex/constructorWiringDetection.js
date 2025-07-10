@@ -51,7 +51,7 @@ export function parseConstructorWirings(text, beans) {
     return params;
   }
 
-  // Buscar clases
+  // Buscar clases que son beans (solo @Component o declaradas con @Bean)
   const classRegex = /public\s+class\s+(\w+)\s*\{/g;
   let match;
   while ((match = classRegex.exec(text)) !== null) {
@@ -59,7 +59,18 @@ export function parseConstructorWirings(text, beans) {
     const classStart = match.index + match[0].length - 1;
     const classBody = extractClassBody(text, classStart);
     const sourceBeanName = classToBeanName[className];
+    
+    // Solo analizar si es un bean (tiene @Component o está declarado con @Bean)
     if (!sourceBeanName) continue;
+    
+    // Verificar que realmente es un bean (tiene @Component o está en configuración)
+    const isComponent = classBody.includes('@Component') || 
+                       classBody.includes('@Service') || 
+                       classBody.includes('@Repository') || 
+                       classBody.includes('@Controller');
+    
+    // Solo analizar constructores de clases con @Component, no de clases declaradas con @Bean
+    if (!isComponent) continue;
 
     // Buscar todos los constructores públicos
     const ctorRegex = new RegExp(`(@Autowired[\\s\\S]*?)?public +${className} *\\(`, 'g');
