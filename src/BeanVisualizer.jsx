@@ -12,7 +12,8 @@ const BEAN_COLORS = {
   service:   "#e67e22",   // naranja
   repository: "#2980b9", // azul
   controller: "#8e44ad",  // violeta
-  bean:      "#00bcd4"    // celeste para beans de configuración
+  bean:      "#00bcd4",   // celeste para beans de configuración
+  "xml-bean": "#f39c12"   // amarillo para beans XML
 };
 
 
@@ -327,7 +328,23 @@ export default function BeanVisualizer() {
       {/* Bloque 2: Advertencias */}
       <Alert
         errors={warnings.errors || []}
+        bracketWarning={warnings.bracketWarning}
+        returnWarning={warnings.returnWarning}
+        multiNameWarning={warnings.multiNameWarning}
+        missingClassWarnings={warnings.missingClassWarnings || []}
+        autowiredInvalids={warnings.autowiredInvalids || []}
+        missingAutowiredTypes={warnings.missingAutowiredTypes || []}
+        missingAutowiredMethodTypes={warnings.missingAutowiredMethodTypes || []}
+        missingConstructorTypes={warnings.missingConstructorTypes || []}
+        unassignedConstructorParams={warnings.unassignedConstructorParams || []}
         cycleWarnings={cycleWarnings}
+        // Warnings XML
+        xmlStructureWarning={warnings.xmlStructureWarning}
+        xmlTagWarning={warnings.xmlTagWarning}
+        xmlClosingWarning={warnings.xmlClosingWarning}
+        beanUnclosedWarning={warnings.beanUnclosedWarning}
+        missingXmlClassWarnings={warnings.missingXmlClassWarnings || []}
+        brokenXmlWirings={warnings.brokenXmlWirings || []}
       />
       {/* Bloque 3: Canvas y slider */}
       <Canvas

@@ -8,4 +8,4 @@ public class BeanA {
 public class BeanB {
     @Autowired
     private BeanA beanA;
-} 
+}

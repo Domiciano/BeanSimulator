@@ -11,7 +11,14 @@ export default function Alert({
   missingAutowiredMethodTypes = [],
   missingConstructorTypes = [],
   unassignedConstructorParams = [],
-  cycleWarnings = []
+  cycleWarnings = [],
+  // Warnings XML
+  xmlStructureWarning,
+  xmlTagWarning,
+  xmlClosingWarning,
+  beanUnclosedWarning,
+  missingXmlClassWarnings = [],
+  brokenXmlWirings = []
 }) {
   if (
     errors.length === 0 &&
@@ -24,7 +31,13 @@ export default function Alert({
     missingAutowiredMethodTypes.length === 0 &&
     missingConstructorTypes.length === 0 &&
     unassignedConstructorParams.length === 0 &&
-    cycleWarnings.length === 0
+    cycleWarnings.length === 0 &&
+    !xmlStructureWarning &&
+    !xmlTagWarning &&
+    !xmlClosingWarning &&
+    !beanUnclosedWarning &&
+    missingXmlClassWarnings.length === 0 &&
+    brokenXmlWirings.length === 0
   ) {
     return null;
   }
@@ -90,6 +103,40 @@ export default function Alert({
         {cycleWarnings.length > 0 && (
           <div style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line', color: '#b30000'}}>
             Advertencia: ¡Referencia circular detectada! Ciclos: {cycleWarnings.map(c => c.join(' → ')).join(' | ')}
+          </div>
+        )}
+        {xmlStructureWarning && (
+          <div style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line', color: '#b30000'}}>
+            {xmlStructureWarning}
+          </div>
+        )}
+        {xmlTagWarning && (
+          <div style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line', color: '#b30000'}}>
+            {xmlTagWarning}
+          </div>
+        )}
+        {xmlClosingWarning && (
+          <div style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line', color: '#b30000'}}>
+            {xmlClosingWarning}
+          </div>
+        )}
+        {beanUnclosedWarning && (
+          <div style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line', color: '#b30000'}}>
+            {beanUnclosedWarning}
+          </div>
+        )}
+        {missingXmlClassWarnings.length > 0 && (
+          <div style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line', color: '#b30000'}}>
+            {missingXmlClassWarnings.map((w, idx) => (
+              <div key={`xmlclass${idx}`}>{w}</div>
+            ))}
+          </div>
+        )}
+        {brokenXmlWirings.length > 0 && (
+          <div style={{width: '100%', display: 'block', wordBreak: 'break-word', overflowWrap: 'anywhere', whiteSpace: 'pre-line', color: '#b30000'}}>
+            {brokenXmlWirings.map((w, idx) => (
+              <div key={`xmlwiring${idx}`}>{w}</div>
+            ))}
           </div>
         )}
       </div>

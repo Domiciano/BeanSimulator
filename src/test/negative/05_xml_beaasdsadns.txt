@@ -1,0 +1,17 @@
+public class BeanA {}
+public class BeanB {}
+
+<?xml version="1.0" encoding="UTF-8"?>
+<beaasdsadns xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+
+    <bean id="beanA" class="BeanA">
+      
+    </bean>
+    <bean id="beanB" class="BeanB">
+        <property name="beanA" ref="beanA"/>
+    </bean>
+    
+</beans> 
