@@ -1,0 +1,10 @@
+@Component
+public class BeanA {}
+
+public class BeanB {} 
+
+@Configuration
+public class Config {
+    @Bean
+    public BeanB beanB(BeanA beanA) {}
+}

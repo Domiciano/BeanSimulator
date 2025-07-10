@@ -1,0 +1,23 @@
+@Component
+public class BeanA {}
+
+@Component
+public class BeanB {
+    @Autowired
+    private BeanA beanA;
+}
+
+@Configuration
+public class Config {
+    @Bean
+    public BeanC beanC(BeanA beanA, BeanD beanD) {}
+    
+    @Bean
+    public BeanD beanD() {}
+}
+
+public class BeanC {
+    public BeanC(BeanA beanA, BeanB beanB) {}
+}
+
+public class BeanD {} 

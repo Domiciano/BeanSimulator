@@ -1,0 +1,31 @@
+@Configuration
+public class Config {
+    @Bean
+    public BeanA beanA() {
+        return new BeanA();
+    }
+    
+    @Bean
+    public BeanB beanB(BeanA beanA) {
+        return new BeanB(beanA);
+    }
+}
+
+public class BeanA {}
+public class BeanB {
+    public BeanB(BeanA beanA) {}apublic class BeanA {}
+public class BeanB {} 
+
+@Configuration
+public class Config {
+    @Bean
+    public BeanA beanA() {
+        return new BeanA();
+    }
+    
+    @Bean
+    public BeanB beanB(BeanA beanA) {
+        return new BeanB(beanA);
+    }
+}
+} 

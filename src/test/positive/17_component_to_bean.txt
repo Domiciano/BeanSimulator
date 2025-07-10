@@ -1,0 +1,13 @@
+@Configuration
+public class Config {
+    @Bean
+    public BeanA beanA() {}
+}
+
+@Component
+public class BeanB {
+    @Autowired
+    private BeanA beanA;
+}
+
+public class BeanA {} 
