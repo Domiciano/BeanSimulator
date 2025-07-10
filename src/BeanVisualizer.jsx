@@ -5,6 +5,7 @@ import { getBeanLevels } from "./regex/layoutCalculation.js";
 import CodeEditor from "./components/CodeEditor.jsx";
 import Alert from "./components/Alert.jsx";
 import Canvas from "./components/Canvas.jsx";
+import TabSelector from "./components/TabSelector.jsx";
 
 // Colores por tipo de bean
 const BEAN_COLORS = {
@@ -27,7 +28,14 @@ const MAX_ZOOM = 2.5;
 // Elimino getGridLayout porque no se usa
 
 export default function BeanVisualizer() {
-  const [code, setCode] = useState(`@Component\npublic class BeanA{}\n\n@Component\npublic class BeanB{}`);
+  const [code, setCode] = useState(`@Component
+public class BeanA {}
+
+@Component
+public class BeanB {
+    @Autowired
+    private BeanA beanA;
+}`);
   const [beans, setBeans] = useState([]);
   const [wirings, setWirings] = useState([]);
   const [warnings, setWarnings] = useState({});
@@ -43,6 +51,42 @@ export default function BeanVisualizer() {
   const [draggedBean, setDraggedBean] = useState(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [cycleWarnings, setCycleWarnings] = useState([]);
+
+  // Códigos de ejemplo
+  const javaExample = `@Component
+public class BeanA {}
+
+@Component
+public class BeanB {
+    @Autowired
+    private BeanA beanA;
+}`;
+
+  const xmlExample = `public class BeanA {}
+public class BeanB {}
+
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd">
+
+    <bean id="beanA" class="BeanA"/>
+      
+    <bean id="beanB" class="BeanB">
+        <property name="beanA" ref="beanA"/>
+    </bean>
+    
+</beans>`;
+
+  // Manejar clicks en los botones
+  const handleJavaClick = () => {
+    setCode(javaExample);
+  };
+
+  const handleXmlClick = () => {
+    setCode(xmlExample);
+  };
 
   // Asignar posiciones iniciales o reacomodar al cambiar beans o wiring
   useEffect(() => {
@@ -311,6 +355,7 @@ export default function BeanVisualizer() {
     <div ref={containerRef} style={{ width: "100%", display: "flex", flexDirection: "column", alignItems: 'center' }}>
       {/* Bloque 1: Editor de código */}
       <div style={{ width: "100%", boxSizing: "border-box", marginBottom: 16 }}>
+        <TabSelector onJavaClick={handleJavaClick} onXmlClick={handleXmlClick} />
         <CodeEditor code={code} onChange={setCode} />
         <style>{`
           #bean-code-editor, #bean-code-editor:focus {
