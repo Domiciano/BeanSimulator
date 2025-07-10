@@ -58,12 +58,26 @@ export function parseWirings(text, beans) {
             }
           }
           if (!found) {
-            missingAutowiredTypes.push({
-              from: className,
-              field: fieldName,
-              type,
-              error: `No se encontró ningún bean cuyo tipo o interfaz implementada coincida con '${type}' para el campo '${fieldName}' en '${className}'. ¿Quizá la interfaz o clase está mal escrita o no existe?`
-            });
+            // Validar que el tipo existe como interfaz o clase
+            const declaredInterfaces = Array.from(text.matchAll(/public\s+interface\s+(\w+)/g)).map(m => m[1]);
+            const declaredClasses = Array.from(text.matchAll(/public\s+class\s+(\w+)/g)).map(m => m[1]);
+            const typeExists = declaredInterfaces.includes(type) || declaredClasses.includes(type);
+            
+            if (!typeExists) {
+              missingAutowiredTypes.push({
+                from: className,
+                field: fieldName,
+                type,
+                error: `La interfaz/clase '${type}' no existe. Las interfaces declaradas son: ${declaredInterfaces.join(', ') || 'ninguna'}. Las clases declaradas son: ${declaredClasses.join(', ')}.`
+              });
+            } else {
+              missingAutowiredTypes.push({
+                from: className,
+                field: fieldName,
+                type,
+                error: `No se encontró ningún bean cuyo tipo o interfaz implementada coincida con '${type}' para el campo '${fieldName}' en '${className}'. ¿Quizá la interfaz o clase está mal escrita o no existe?`
+              });
+            }
           }
         }
       }

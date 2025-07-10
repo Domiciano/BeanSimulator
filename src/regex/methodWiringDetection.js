@@ -88,32 +88,47 @@ export function parseMethodWirings(text, beans) {
           const targetBeanName = qualifierMatch[1];
           const targetBean = beanNameToBean[targetBeanName];
           if (targetBean && paramType) {
-            // Validar que la clase del bean destino implemente o sea del tipo del parámetro
-            const classDeclRegex = new RegExp(`public\\s+class\\s+${targetBean.className}\\s*(?:extends\\s+\\w+)?(?:\\s+implements\\s+([\\w\\s,<>,]+))?`, 's');
-            const declMatch = text.match(classDeclRegex);
-            let implementsType = false;
-            let interfaces = [];
-            if (declMatch && declMatch[1]) {
-              interfaces = declMatch[1].split(',').map(s => s.trim());
-              if (interfaces.includes(paramType)) implementsType = true;
-            }
-            const classDeclPattern = new RegExp(`public class ${targetBean.className}[^{]*{`, 's');
-            const classDeclMatch = text.match(classDeclPattern);
-            if (classDeclMatch && classDeclMatch[0]) {
-              const implementsMatch = classDeclMatch[0].match(/implements\s+([\s\S]*?)\{/);
-              if (implementsMatch && implementsMatch[1]) {
-                interfaces = implementsMatch[1].split(',').map(s => s.trim());
-                if (interfaces.includes(paramType)) implementsType = true;
-              }
-            }
-            if (targetBean.className === paramType || implementsType) {
-              methodWirings.push({
+            // Validar que el tipo del parámetro existe como interfaz o clase
+            const declaredInterfaces = Array.from(text.matchAll(/public\s+interface\s+(\w+)/g)).map(m => m[1]);
+            const declaredClasses = Array.from(text.matchAll(/public\s+class\s+(\w+)/g)).map(m => m[1]);
+            const typeExists = declaredInterfaces.includes(paramType) || declaredClasses.includes(paramType);
+            
+            if (!typeExists) {
+              missingAutowiredMethodTypes.push({
                 from: sourceBeanName,
-                to: targetBeanName,
                 method: methodName,
                 paramType,
-                paramName
+                paramName,
+                error: `La interfaz/clase '${paramType}' no existe. Las interfaces declaradas son: ${declaredInterfaces.join(', ') || 'ninguna'}. Las clases declaradas son: ${declaredClasses.join(', ')}.`
               });
+            } else {
+              // Validar que la clase del bean destino implemente o sea del tipo del parámetro
+              const classDeclRegex = new RegExp(`public\\s+class\\s+${targetBean.className}\\s*(?:extends\\s+\\w+)?(?:\\s+implements\\s+([\\w\\s,<>,]+))?`, 's');
+              const declMatch = text.match(classDeclRegex);
+              let implementsType = false;
+              let interfaces = [];
+              if (declMatch && declMatch[1]) {
+                interfaces = declMatch[1].split(',').map(s => s.trim());
+                if (interfaces.includes(paramType)) implementsType = true;
+              }
+              const classDeclPattern = new RegExp(`public class ${targetBean.className}[^{]*{`, 's');
+              const classDeclMatch = text.match(classDeclPattern);
+              if (classDeclMatch && classDeclMatch[0]) {
+                const implementsMatch = classDeclMatch[0].match(/implements\s+([\s\S]*?)\{/);
+                if (implementsMatch && implementsMatch[1]) {
+                  interfaces = implementsMatch[1].split(',').map(s => s.trim());
+                  if (interfaces.includes(paramType)) implementsType = true;
+                }
+              }
+              if (targetBean.className === paramType || implementsType) {
+                methodWirings.push({
+                  from: sourceBeanName,
+                  to: targetBeanName,
+                  method: methodName,
+                  paramType,
+                  paramName
+                });
+              }
             }
           }
         } else if (paramType) {

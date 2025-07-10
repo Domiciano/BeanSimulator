@@ -90,24 +90,38 @@ export function parseConstructorWirings(text, beans) {
           const targetBeanName = qualifierMatch[1];
           const targetBean = beanNameToBean[targetBeanName];
           if (targetBean && paramType) {
-            const classDeclPattern = new RegExp(`public class ${targetBean.className}[^{]*{`, 's');
-            const classDeclMatch = text.match(classDeclPattern);
-            let implementsType = false;
-            let interfaces = [];
-            if (classDeclMatch && classDeclMatch[0]) {
-              const implementsMatch = classDeclMatch[0].match(/implements +([\s\S]*?){/);
-              if (implementsMatch && implementsMatch[1]) {
-                interfaces = implementsMatch[1].split(',').map(s => s.trim());
-                if (interfaces.includes(paramType)) implementsType = true;
-              }
-            }
-            if (targetBean.className === paramType || implementsType) {
-              constructorWirings.push({
+            // Validar que el tipo del parámetro existe como interfaz o clase
+            const declaredInterfaces = Array.from(text.matchAll(/public\s+interface\s+(\w+)/g)).map(m => m[1]);
+            const declaredClasses = Array.from(text.matchAll(/public\s+class\s+(\w+)/g)).map(m => m[1]);
+            const typeExists = declaredInterfaces.includes(paramType) || declaredClasses.includes(paramType);
+            
+            if (!typeExists) {
+              missingConstructorTypes.push({
                 from: sourceBeanName,
-                to: targetBeanName,
                 paramType,
-                paramName
+                paramName,
+                error: `La interfaz/clase '${paramType}' no existe. Las interfaces declaradas son: ${declaredInterfaces.join(', ') || 'ninguna'}. Las clases declaradas son: ${declaredClasses.join(', ')}.`
               });
+            } else {
+              const classDeclPattern = new RegExp(`public class ${targetBean.className}[^{]*{`, 's');
+              const classDeclMatch = text.match(classDeclPattern);
+              let implementsType = false;
+              let interfaces = [];
+              if (classDeclMatch && classDeclMatch[0]) {
+                const implementsMatch = classDeclMatch[0].match(/implements\s+([\s\S]*?)\{/);
+                if (implementsMatch && implementsMatch[1]) {
+                  interfaces = implementsMatch[1].split(',').map(s => s.trim());
+                  if (interfaces.includes(paramType)) implementsType = true;
+                }
+              }
+              if (targetBean.className === paramType || implementsType) {
+                constructorWirings.push({
+                  from: sourceBeanName,
+                  to: targetBeanName,
+                  paramType,
+                  paramName
+                });
+              }
             }
           }
         } else if (paramType) {
