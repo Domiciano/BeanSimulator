@@ -74,7 +74,7 @@ public class BeanB {}
     <bean id="beanA" class="BeanA"/>
       
     <bean id="beanB" class="BeanB">
-        <property name="beanA" ref="beanA"/>
+        <constructor-arg ref="beanA"/>
     </bean>
     
 </beans>`;
