@@ -36,7 +36,36 @@ export function parseWirings(text, beans) {
         targetBeanName = qualifier;
       } else {
         // Si hay más de un bean para ese tipo, wiring ambiguo (Spring lanzaría error, aquí tomamos el primero)
-        targetBeanName = (classToBeanNames[type] && classToBeanNames[type][0]) || undefined;
+        if (classToBeanNames[type] && classToBeanNames[type].length === 1) {
+          targetBeanName = classToBeanNames[type][0];
+        } else if (classToBeanNames[type] && classToBeanNames[type].length > 1) {
+          targetBeanName = classToBeanNames[type][0]; // wiring ambiguo, pero se toma el primero
+        } else {
+          // Buscar si algún bean implementa la interfaz
+          let found = false;
+          for (const bean of beans) {
+            const classDeclPattern = new RegExp(`public class ${bean.className}[^{]*{`, 's');
+            const classDeclMatch = text.match(classDeclPattern);
+            if (classDeclMatch && classDeclMatch[0]) {
+              const implementsMatch = classDeclMatch[0].match(/implements +([\s\S]*?){/);
+              if (implementsMatch && implementsMatch[1]) {
+                const interfaces = implementsMatch[1].split(',').map(s => s.trim());
+                if (interfaces.includes(type)) {
+                  found = true;
+                  break;
+                }
+              }
+            }
+          }
+          if (!found) {
+            missingAutowiredTypes.push({
+              from: className,
+              field: fieldName,
+              type,
+              error: `No se encontró ningún bean cuyo tipo o interfaz implementada coincida con '${type}' para el campo '${fieldName}' en '${className}'. ¿Quizá la interfaz o clase está mal escrita o no existe?`
+            });
+          }
+        }
       }
       if (modifiers && (modifiers.includes('static') || modifiers.includes('final'))) {
         autowiredInvalids.push(`${className}.${fieldName}`);

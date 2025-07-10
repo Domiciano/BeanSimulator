@@ -11,20 +11,3 @@ public class AppConfig {
     @Bean
     public BeanC beanC(BeanA beanA, BeanB beanB) {}
 } 
-
-Caso negativo:
-public class BeanasdasdA {}
-public class BeanB {}
-public class BeanC {}
-
-@Configuration
-public class AppConfig {
-    @Bean
-    public BeanA beanA() {}
-    @Bean
-    public BeanB beanB() {}
-    @Bean
-    public BeanC beanC(BeanA beanA, BeanB beanB) {}
-} 
-
-Funciona, pero no deberia. Porque la clase BeanA no esta declarada

@@ -1,4 +1,4 @@
-public interface Servicio {}
+public interface Servasdasdicio {}
 
 @Component("alfa")
 public class ServicioA implements Servicio {}

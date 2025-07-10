@@ -147,7 +147,8 @@ export function parseConstructorWirings(text, beans) {
             missingConstructorTypes.push({
               from: sourceBeanName,
               paramType,
-              paramName
+              paramName,
+              error: `No se encontró ningún bean cuyo tipo o interfaz implementada coincida con '${paramType}' para el constructor de '${sourceBeanName}'. ¿Quizá la interfaz o clase está mal escrita o no existe?`
             });
           }
         }

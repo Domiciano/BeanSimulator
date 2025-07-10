@@ -1,0 +1,11 @@
+public class BeanAasdasd {}
+public class BeasdasdanB {}
+
+@Configuration
+public class AppConfig {
+    @Bean
+    public BeanA beanA() {}
+    
+    @Bean
+    public BeanB beanB(BeanA beanA) {}
+} 

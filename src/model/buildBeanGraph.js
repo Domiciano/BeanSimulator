@@ -7,13 +7,22 @@ import { validateCode } from '../regex/validations.js';
 
 export function buildBeanGraph(code) {
   const beans = parseBeans(code);
-  const wirings = parseWirings(code, beans).wirings;
-  const methodWirings = parseMethodWirings(code, beans).methodWirings;
-  const constructorWirings = parseConstructorWirings(code, beans).constructorWirings;
-  const configWirings = parseConfigWirings(code, beans).configWirings;
+  // Obtener clases declaradas
+  const declaredClasses = Array.from(code.matchAll(/public\s+class\s+(\w+)/g)).map(m => m[1]);
+  // Filtrar beans de métodos @Bean cuyo tipo no existe
+  const filteredBeans = beans.filter(bean => {
+    if (bean.type === 'bean') {
+      return declaredClasses.includes(bean.className);
+    }
+    return true;
+  });
+  const wirings = parseWirings(code, filteredBeans).wirings;
+  const methodWirings = parseMethodWirings(code, filteredBeans).methodWirings;
+  const constructorWirings = parseConstructorWirings(code, filteredBeans).constructorWirings;
+  const configWirings = parseConfigWirings(code, filteredBeans).configWirings;
   const warnings = validateCode(code, beans);
   return {
-    beans,
+    beans: filteredBeans,
     wirings: [
       ...wirings,
       ...methodWirings,
