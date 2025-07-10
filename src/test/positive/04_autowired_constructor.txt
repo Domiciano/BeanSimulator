@@ -1,0 +1,7 @@
+@Component
+public class BeanA {}
+
+@Component
+public class BeanB {
+    public BeanB(BeanA beanA) {}
+} 

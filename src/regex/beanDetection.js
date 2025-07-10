@@ -43,20 +43,11 @@ export function parseBeans(text) {
   while ((match = configClassRegex.exec(text)) !== null) {
     const classStart = match.index + match[0].length - 1;
     const configBody = extractClassBody(text, classStart);
-    // Solo considerar clases válidas las que tengan llaves de apertura y cierre
-    const declaredClasses = Array.from(text.matchAll(/public\s+class\s+(\w+)\s*\{[\s\S]*?\}/g)).map(m => m[1]);
-    for (const m of configBody.matchAll(/@Bean[\s\S]*?(public|protected|private)?[\s\S]*?\w+\s+(\w+)\s*\([^)]*\)\s*\{([\s\S]*?)\}/g)) {
-      const methodName = m[2];
-      const body = m[3];
-      // Solo agregar el bean si hay return ...; en el cuerpo
-      const returnMatch = body.match(/return\s+new\s+(\w+)\s*\(/);
-      const hasValidReturn = /return[\s\S]*?;/g.test(body);
-      if (hasValidReturn && returnMatch && declaredClasses.includes(returnMatch[1])) {
-        // Buscar nombre explícito
-        const beanTagMatch = m[0].match(/@Bean\s*\((?:\s*value\s*=)?\s*"([^"]+)"\s*\)/);
-        let beanName = beanTagMatch ? beanTagMatch[1] : methodName;
-        beans.push({ className: methodName, beanName, type: "bean" });
-      }
+    for (const m of configBody.matchAll(/@Bean[\s\S]*?(public|protected|private)?[\s\S]*?(\w+)\s+(\w+)\s*\(([^)]*)\)\s*\{([\s\S]*?)\}/g)) {
+      // m[2]: tipo de retorno, m[3]: nombre del método, m[4]: params, m[5]: body
+      const returnType = m[2];
+      const methodName = m[3];
+      beans.push({ className: returnType, beanName: methodName, type: "bean" });
     }
   }
   return beans;

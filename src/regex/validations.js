@@ -1,57 +1,18 @@
-import { extractClassBody } from './beanDetection.js';
-
 // Validaciones y advertencias del sistema
 export function validateCode(code, beans) {
   const warnings = {
     bracketWarning: null,
-    returnWarning: null,
+    returnWarning: null, // Ya no se usará
     multiNameWarning: null,
     missingClassWarnings: [],
-    errors: []
+    errors: [],
+    duplicateClassWarning: null // NUEVO
   };
 
   // Advertencia por desbalance de llaves
   const open = (code.match(/\{/g) || []).length;
   const close = (code.match(/\}/g) || []).length;
   warnings.bracketWarning = open !== close ? `Advertencia: El número de llaves de apertura ({) y cierre (}) no coincide (${open} vs ${close}).` : null;
-
-  // Advertencia por falta de punto y coma en return de métodos @Bean
-  const beanMethodBlocks = [];
-  const configClassRegex = /@Configuration\s*public\s+class\s+\w+\s*\{/g;
-  let match;
-  while ((match = configClassRegex.exec(code)) !== null) {
-    const classStart = match.index + match[0].length - 1;
-    const configBody = extractClassBody(code, classStart);
-    const beanMethodRegex = /@Bean[\s\S]*?(public|protected|private)?[\s\S]*?\w+\s+(\w+)\s*\([^)]*\)\s*\{([\s\S]*?)\}/g;
-    let m;
-    while ((m = beanMethodRegex.exec(configBody)) !== null) {
-      beanMethodBlocks.push({
-        methodName: m[2],
-        body: m[3]
-      });
-    }
-  }
-  let missingSemicolon = false;
-  let missingReturn = false;
-  let missingReturnMethods = [];
-  let missingSemicolonMethods = [];
-  for (const block of beanMethodBlocks) {
-    // Buscar línea return ... ;
-    const returnLines = block.body.match(/return[\s\S]*?;/g);
-    const hasReturn = /return[\s\S]*?/.test(block.body);
-    if (!hasReturn) {
-      missingReturn = true;
-      missingReturnMethods.push(block.methodName);
-    } else if (!returnLines) {
-      missingSemicolon = true;
-      missingSemicolonMethods.push(block.methodName);
-    }
-  }
-  warnings.returnWarning = missingReturn
-    ? `Advertencia: El método @Bean${missingReturnMethods.length > 1 ? 's' : ''} '${missingReturnMethods.join(", ")}' no tiene${missingReturnMethods.length > 1 ? 'n' : ''} una sentencia return.`
-    : missingSemicolon
-    ? `Advertencia: El método @Bean${missingSemicolonMethods.length > 1 ? 's' : ''} '${missingSemicolonMethods.join(", ")}' no tiene${missingSemicolonMethods.length > 1 ? 'n' : ''} punto y coma (;) al final de la línea return.`
-    : null;
 
   // Advertencia: misma clase, diferentes nombres de bean
   const classToNames = {};
@@ -65,14 +26,13 @@ export function validateCode(code, beans) {
     }
   });
 
-  // Advertencia: return de método @Bean con clase no declarada
+  // Restaurar: advertencia si un método @Bean retorna un tipo no declarado
   const declaredClasses = Array.from(code.matchAll(/public\s+class\s+(\w+)/g)).map(m => m[1]);
-  for (const block of beanMethodBlocks) {
-    const returnNew = block.body.match(/return\s+new\s+(\w+)\s*\(/);
-    if (returnNew && !declaredClasses.includes(returnNew[1])) {
-      warnings.missingClassWarnings.push(`Advertencia: El método @Bean '${block.methodName}' retorna un objeto de tipo '${returnNew[1]}', pero no existe ninguna clase declarada con ese nombre.`);
+  beans.forEach(bean => {
+    if (bean.type === 'bean' && !declaredClasses.includes(bean.className)) {
+      warnings.missingClassWarnings.push(`Advertencia: El método @Bean '${bean.beanName}' retorna un objeto de tipo '${bean.className}', pero no existe ninguna clase declarada con ese nombre.`);
     }
-  }
+  });
 
   // Detección de errores: beans o clases con el mismo nombre
   const nameCount = {};
@@ -87,6 +47,17 @@ export function validateCode(code, beans) {
   Object.entries(classCount).forEach(([name, count]) => {
     if (count > 1) warnings.errors.push(`Hay ${count} clases con el nombre "${name}".`);
   });
+
+  // Detección de clases duplicadas (todas las clases, no solo beans)
+  const allClassNames = Array.from(code.matchAll(/public\s+class\s+(\w+)/g)).map(m => m[1]);
+  const classNameCounts = {};
+  allClassNames.forEach(name => {
+    classNameCounts[name] = (classNameCounts[name] || 0) + 1;
+  });
+  const duplicates = Object.entries(classNameCounts).filter(([, count]) => count > 1);
+  if (duplicates.length > 0) {
+    warnings.duplicateClassWarning = `Advertencia: Hay clases declaradas más de una vez: ${duplicates.map(([name, count]) => `"${name}" (${count} veces)`).join(", ")}.`;
+  }
 
   return warnings;
 } 

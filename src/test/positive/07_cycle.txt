@@ -1,0 +1,11 @@
+@Component
+public class BeanA {
+    @Autowired
+    private BeanB beanB;
+}
+
+@Component
+public class BeanB {
+    @Autowired
+    private BeanA beanA;
+} 

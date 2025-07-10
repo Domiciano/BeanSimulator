@@ -1,0 +1,13 @@
+public class BeanA {}
+public class BeanB {}
+public class BeanC {}
+
+@Configuration
+public class AppConfig {
+    @Bean
+    public BeanA beanA() {}
+    @Bean
+    public BeanB beanB() {}
+    @Bean
+    public BeanC beanC(BeanA beanA, BeanB beanB) {}
+} 
