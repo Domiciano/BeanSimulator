@@ -63,10 +63,12 @@ export function parseMethodWirings(text, beans) {
       return params;
     }
     // Probar un regex más simple para detectar métodos públicos y capturar nombre y firma completa
-    const methodRegex = /public\s+\w+\s+(\w+)\s*\(/g;
+    const methodRegex = /(@Autowired[\s\S]*?)?public\s+\w+\s+(\w+)\s*\(/g;
     let methodMatch;
     while ((methodMatch = methodRegex.exec(classBody)) !== null) {
-      const methodName = methodMatch[1];
+      const autowiredPresent = methodMatch[1] !== undefined;
+      if (!autowiredPresent) continue;
+      const methodName = methodMatch[2];
       const methodStart = methodMatch.index;
       const paramsString = extractParamsFromClassBody(classBody, methodStart);
       const params = splitParams(paramsString);
@@ -74,55 +76,36 @@ export function parseMethodWirings(text, beans) {
       console.log('DEBUG paramsString', paramsString);
       console.log('DEBUG params', params);
       for (const param of params) {
-        // DEBUG: imprimir todos los parámetros
-        console.log('DEBUG param raw', param);
-        // Buscar @Qualifier
         const qualifierMatch = param.match(/@Qualifier\s*\(\s*"([^"]+)"\s*\)/);
+        const trimmedParam = param.trim();
+        const typeNameMatch = trimmedParam.match(/([\w<>]+)\s+(\w+)$/);
+        let paramType, paramName;
+        if (typeNameMatch) {
+          paramType = typeNameMatch[1];
+          paramName = typeNameMatch[2];
+        }
         if (qualifierMatch) {
           const targetBeanName = qualifierMatch[1];
-          // Extraer tipo del parámetro
-          // Puede haber espacios, tags, etc. Buscar el último "palabra palabra" después del tag
-          // Imprimir el string del parámetro entre delimitadores
-          const trimmedParam = param.trim();
-          console.log('DEBUG param delimiters', `>${trimmedParam}<`);
-          // Extraer tipo y nombre al final del parámetro
-          const typeNameMatch = trimmedParam.match(/([\w<>]+)\s+(\w+)$/);
-          let paramType, paramName;
-          // DEBUG: imprimir el valor de param y el match
-          console.log('DEBUG param', {param: trimmedParam, typeNameMatch});
-          if (typeNameMatch) {
-            paramType = typeNameMatch[1];
-            paramName = typeNameMatch[2];
-          }
-          // Validar que exista un bean con ese nombre
           const targetBean = beanNameToBean[targetBeanName];
           if (targetBean && paramType) {
             // Validar que la clase del bean destino implemente o sea del tipo del parámetro
-            // Buscar declaración de la clase destino (tolerante a saltos de línea y espacios)
             const classDeclRegex = new RegExp(`public\\s+class\\s+${targetBean.className}\\s*(?:extends\\s+\\w+)?(?:\\s+implements\\s+([\\w\\s,<>,]+))?`, 's');
             const declMatch = text.match(classDeclRegex);
             let implementsType = false;
             let interfaces = [];
-            // Extraer interfaces implementadas de la declaración de la clase
             if (declMatch && declMatch[1]) {
               interfaces = declMatch[1].split(',').map(s => s.trim());
               if (interfaces.includes(paramType)) implementsType = true;
             }
-            // DEBUG: imprimir valores relevantes
-            console.log('DEBUG wiring', {paramType, targetClass: targetBean.className, interfaces, implementsType});
-            // DEBUG: imprimir la declaración de la clase destino
-            const classDeclPattern = new RegExp(`public class ${targetBean.className}[^\{]*{`, 's');
+            const classDeclPattern = new RegExp(`public class ${targetBean.className}[^{]*{`, 's');
             const classDeclMatch = text.match(classDeclPattern);
-            console.log('DEBUG classDecl', classDeclMatch ? classDeclMatch[0] : 'NO MATCH');
             if (classDeclMatch && classDeclMatch[0]) {
-              console.log('DEBUG classDeclMatch[0]', JSON.stringify(classDeclMatch[0]));
               const implementsMatch = classDeclMatch[0].match(/implements\s+([\s\S]*?)\{/);
               if (implementsMatch && implementsMatch[1]) {
                 interfaces = implementsMatch[1].split(',').map(s => s.trim());
                 if (interfaces.includes(paramType)) implementsType = true;
               }
             }
-            // También permitir wiring si el tipo es exactamente igual al className
             if (targetBean.className === paramType || implementsType) {
               methodWirings.push({
                 from: sourceBeanName,
@@ -132,6 +115,49 @@ export function parseMethodWirings(text, beans) {
                 paramName
               });
             }
+          }
+        } else if (paramType) {
+          // Buscar beans compatibles por tipo
+          const compatibleBeans = beans.filter(bean => {
+            if (bean.className === paramType) return true;
+            // Buscar si implementa la interfaz
+            const classDeclPattern = new RegExp(`public class ${bean.className}[^{]*{`, 's');
+            const classDeclMatch = text.match(classDeclPattern);
+            if (classDeclMatch && classDeclMatch[0]) {
+              const implementsMatch = classDeclMatch[0].match(/implements +([\s\S]*?){/);
+              if (implementsMatch && implementsMatch[1]) {
+                const interfaces = implementsMatch[1].split(',').map(s => s.trim());
+                if (interfaces.includes(paramType)) return true;
+              }
+            }
+            return false;
+          });
+          if (compatibleBeans.length === 1) {
+            methodWirings.push({
+              from: sourceBeanName,
+              to: compatibleBeans[0].beanName,
+              method: methodName,
+              paramType,
+              paramName
+            });
+          } else if (compatibleBeans.length > 1) {
+            // Ambigüedad: más de un bean compatible
+            methodWirings.push({
+              from: sourceBeanName,
+              to: null,
+              method: methodName,
+              paramType,
+              paramName,
+              error: 'Ambiguous method wiring: multiple beans match type ' + paramType
+            });
+          } else {
+            // Ningún bean compatible
+            missingAutowiredMethodTypes.push({
+              from: sourceBeanName,
+              method: methodName,
+              paramType,
+              paramName
+            });
           }
         }
       }

@@ -35,7 +35,6 @@ export function parseConstructorWirings(text, beans) {
     if (current.trim()) params.push(current.trim());
     return params.filter(Boolean);
   }
-
   // Parser manual para extraer la lista de parámetros de la firma del constructor (soporta paréntesis anidados correctamente)
   function extractParamsFromClassBody(classBody, ctorStart) {
     const openIdx = classBody.indexOf('(', ctorStart);
@@ -62,39 +61,41 @@ export function parseConstructorWirings(text, beans) {
     const sourceBeanName = classToBeanName[className];
     if (!sourceBeanName) continue;
 
-    // Buscar constructores públicos (nombre exacto)
-    const ctorRegex = new RegExp(`public\\s+${className}\\s*\\(`, 'g');
+    // Buscar todos los constructores públicos
+    const ctorRegex = new RegExp(`(@Autowired[\\s\\S]*?)?public +${className} *\\(`, 'g');
+    let ctors = [];
     let ctorMatch;
     while ((ctorMatch = ctorRegex.exec(classBody)) !== null) {
-      const ctorStart = ctorMatch.index;
-      const paramsString = extractParamsFromClassBody(classBody, ctorStart);
-      console.log('DEBUG ctor paramsString', paramsString);
+      ctors.push({
+        autowired: ctorMatch[1] !== undefined,
+        start: ctorMatch.index
+      });
+    }
+    // Si solo hay un constructor, wiring aunque no tenga @Autowired
+    // Si hay más de uno, solo wiring para los que tengan @Autowired
+    for (const ctor of ctors) {
+      if (ctors.length > 1 && !ctor.autowired) continue;
+      const paramsString = extractParamsFromClassBody(classBody, ctor.start);
       const params = splitParams(paramsString);
-      console.log('DEBUG ctor params', params);
       for (const param of params) {
-        console.log('DEBUG ctor param raw', param);
-        // Buscar @Qualifier
         const qualifierMatch = param.match(/@Qualifier\s*\(\s*"([^"]+)"\s*\)/);
+        const trimmedParam = param.trim();
+        const typeNameMatch = trimmedParam.match(/([\w<>]+)\s+(\w+)$/);
+        let paramType, paramName;
+        if (typeNameMatch) {
+          paramType = typeNameMatch[1];
+          paramName = typeNameMatch[2];
+        }
         if (qualifierMatch) {
           const targetBeanName = qualifierMatch[1];
-          // Extraer tipo y nombre al final del parámetro
-          const trimmedParam = param.trim();
-          const typeNameMatch = trimmedParam.match(/([\w<>]+)\s+(\w+)$/);
-          let paramType, paramName;
-          if (typeNameMatch) {
-            paramType = typeNameMatch[1];
-            paramName = typeNameMatch[2];
-          }
-          // Validar que exista un bean con ese nombre
           const targetBean = beanNameToBean[targetBeanName];
           if (targetBean && paramType) {
-            // Buscar declaración de la clase destino (tolerante a saltos de línea y espacios)
-            const classDeclPattern = new RegExp(`public class ${targetBean.className}[^\{]*\{`, 's');
+            const classDeclPattern = new RegExp(`public class ${targetBean.className}[^{]*{`, 's');
             const classDeclMatch = text.match(classDeclPattern);
             let implementsType = false;
             let interfaces = [];
             if (classDeclMatch && classDeclMatch[0]) {
-              const implementsMatch = classDeclMatch[0].match(/implements\s+([\s\S]*?)\{/);
+              const implementsMatch = classDeclMatch[0].match(/implements +([\s\S]*?){/);
               if (implementsMatch && implementsMatch[1]) {
                 interfaces = implementsMatch[1].split(',').map(s => s.trim());
                 if (interfaces.includes(paramType)) implementsType = true;
@@ -108,6 +109,46 @@ export function parseConstructorWirings(text, beans) {
                 paramName
               });
             }
+          }
+        } else if (paramType) {
+          // Buscar beans compatibles por tipo
+          const compatibleBeans = beans.filter(bean => {
+            if (bean.className === paramType) return true;
+            // Buscar si implementa la interfaz
+            const classDeclPattern = new RegExp(`public class ${bean.className}[^{]*{`, 's');
+            const classDeclMatch = text.match(classDeclPattern);
+            if (classDeclMatch && classDeclMatch[0]) {
+              const implementsMatch = classDeclMatch[0].match(/implements +([\s\S]*?){/);
+              if (implementsMatch && implementsMatch[1]) {
+                const interfaces = implementsMatch[1].split(',').map(s => s.trim());
+                if (interfaces.includes(paramType)) return true;
+              }
+            }
+            return false;
+          });
+          if (compatibleBeans.length === 1) {
+            constructorWirings.push({
+              from: sourceBeanName,
+              to: compatibleBeans[0].beanName,
+              paramType,
+              paramName
+            });
+          } else if (compatibleBeans.length > 1) {
+            // Ambigüedad: más de un bean compatible
+            constructorWirings.push({
+              from: sourceBeanName,
+              to: null,
+              paramType,
+              paramName,
+              error: 'Ambiguous constructor wiring: multiple beans match type ' + paramType
+            });
+          } else {
+            // Ningún bean compatible
+            missingConstructorTypes.push({
+              from: sourceBeanName,
+              paramType,
+              paramName
+            });
           }
         }
       }
