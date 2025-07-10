@@ -5,10 +5,11 @@ export function parseWirings(text, beans) {
   beans.forEach(bean => {
     beanNameToClass[bean.beanName] = bean.className;
   });
-  // Mapa de clase a beanName
-  const classToBeanName = {};
+  // Mapa de clase a lista de beanNames (soporta múltiples beans por clase)
+  const classToBeanNames = {};
   beans.forEach(bean => {
-    classToBeanName[bean.className] = bean.beanName;
+    if (!classToBeanNames[bean.className]) classToBeanNames[bean.className] = [];
+    classToBeanNames[bean.className].push(bean.beanName);
   });
   // Buscar wiring en cada clase
   const wirings = [];
@@ -19,24 +20,34 @@ export function parseWirings(text, beans) {
   while ((match = classRegex.exec(text)) !== null) {
     const className = match[1];
     const classBody = match[2];
-    // Buscar propiedades @Autowired
-    const propRegex = /@Autowired[\s\n\r]*((private|protected|public)?\s*)?((static|final)\s+)?(\w+)\s+(\w+)\s*;/g;
+    // Buscar el beanName de la clase fuente (puede haber más de uno, pero wiring por campo solo tiene sentido para uno)
+    const sourceBeanNames = classToBeanNames[className] || [];
+    // Buscar propiedades @Autowired (con o sin @Qualifier)
+    const propRegex = /(@Autowired[\s\S]*?)(@Qualifier\s*\(\s*"([^"]+)"\s*\))?\s*((private|protected|public)?\s*)?((static|final)\s+)?(\w+)\s+(\w+)\s*;/g;
     let m;
     while ((m = propRegex.exec(classBody)) !== null) {
-      const modifiers = m[3] || '';
-      const type = m[5];
-      // Buscar bean destino por tipo
-      const targetBeanName = classToBeanName[type];
-      const sourceBeanName = classToBeanName[className];
-      if (modifiers.includes('static') || modifiers.includes('final')) {
-        autowiredInvalids.push(`${className}.${m[6]}`);
+      const qualifier = m[3];
+      const modifiers = m[6] || '';
+      const type = m[8];
+      const fieldName = m[9];
+      // Buscar bean destino
+      let targetBeanName;
+      if (qualifier) {
+        targetBeanName = qualifier;
+      } else {
+        // Si hay más de un bean para ese tipo, wiring ambiguo (Spring lanzaría error, aquí tomamos el primero)
+        targetBeanName = (classToBeanNames[type] && classToBeanNames[type][0]) || undefined;
+      }
+      if (modifiers && (modifiers.includes('static') || modifiers.includes('final'))) {
+        autowiredInvalids.push(`${className}.${fieldName}`);
         continue;
       }
       if (!targetBeanName) {
-        missingAutowiredTypes.push(`${className}.${m[6]} → ${type}`);
+        missingAutowiredTypes.push(`${className}.${fieldName} → ${type}`);
         continue;
       }
-      if (targetBeanName && sourceBeanName) {
+      // Para cada bean fuente (en general solo uno, pero puede haber más si hay beans con el mismo className)
+      for (const sourceBeanName of sourceBeanNames) {
         wirings.push({ from: sourceBeanName, to: targetBeanName });
       }
     }

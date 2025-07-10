@@ -1,0 +1,14 @@
+public interface Servicio {}
+
+@Component("servicioA")
+public class ServicioA implements Servicio {}
+
+@Component("servicioB")
+public class ServicioB implements Servicio {}
+
+@Component
+public class Cliente {
+    @Autowired
+    @Qualifier("servicioA")
+    private Servicio servicio;
+} 

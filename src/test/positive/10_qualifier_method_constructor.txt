@@ -1,0 +1,19 @@
+public interface Servicio {}
+
+@Component("alfa")
+public class ServicioA implements Servicio {}
+
+@Component("beta")
+public class ServicioB implements Servicio {}
+
+@Component
+public class BeanC {
+    @Autowired
+    public void setServicio(@Qualifier("beta") Servicio servicio) {}
+}
+
+@Component
+public class BeanD {
+    public BeanD(@Qualifier("alfa") Servicio servicio) {
+    }
+} 

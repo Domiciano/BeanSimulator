@@ -45,7 +45,7 @@ export function validateCode(code, beans) {
     if (count > 1) warnings.errors.push(`Hay ${count} beans con el nombre "${name}".`);
   });
   Object.entries(classCount).forEach(([name, count]) => {
-    if (count > 1) warnings.errors.push(`Hay ${count} clases con el nombre "${name}".`);
+    if (count > 1) warnings.errors.push(`ERROR: Hay ${count} clases públicas con el nombre "${name}". Esto no es válido en Java.`);
   });
 
   // Detección de clases duplicadas (todas las clases, no solo beans)

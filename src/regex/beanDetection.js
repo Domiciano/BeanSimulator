@@ -18,8 +18,8 @@ export function extractClassBody(text, startIdx) {
 
 // Parser mejorado para beans con tags y métodos @Bean
 export function parseBeans(text) {
-  // Regex para encontrar clases anotadas
-  const beanRegex = /@(Component|Service|Repository|Controller|RestController)\s*(\((?:\s*value\s*=)?\s*"([^"]+)"\s*\))?\s*public\s+class\s+(\w+)\s*\{/g;
+  // Regex tolerante a saltos de línea, espacios y comentarios, y soporta implements/extends
+  const beanRegex = /@(Component|Service|Repository|Controller|RestController)\s*(\((?:\s*value\s*=)?\s*"([^"]+)"\s*\))?(?:\s*\/\/.*|\s*\/\*[\s\S]*?\*\/|\s*)*public\s+class\s+(\w+)(?:\s+extends\s+\w+)?(?:\s+implements\s+[\w\s,<>]+)?\s*\{/g;
   const configClassRegex = /@Configuration\s*public\s+class\s+(\w+)\s*\{/g;
   // Mejorar el regex para métodos @Bean: acepta cualquier visibilidad, cualquier tipo, cualquier contenido entre llaves
   // const beanMethodRegex = /@Bean\s*(\((?:\s*value\s*=)?\s*"([^"]+)"\s*\))?\s*(public|protected|private)?\s*\w+\s+(\w+)\s*\([^)]*\)\s*\{[\s\S]*?return[\s\S]*?\}/g;

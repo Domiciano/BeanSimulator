@@ -1,4 +1,4 @@
-@Component
+@Component("alfa")
 public class BeanA {}
 
 @Component
