@@ -7,6 +7,12 @@ public class BeanB {
     private BeanA beanA;
 }
 
+public class BeanC {
+
+}
+
+public class BeanD {} 
+
 @Configuration
 public class Config {
     @Bean
@@ -15,9 +21,3 @@ public class Config {
     @Bean
     public BeanD beanD() {}
 }
-
-public class BeanC {
-    public BeanC(BeanA beanA, BeanB beanB) {}
-}
-
-public class BeanD {} 
