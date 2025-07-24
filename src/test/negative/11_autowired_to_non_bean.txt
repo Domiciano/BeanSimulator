@@ -1,0 +1,7 @@
+@Component
+public class BeanA {
+    @Autowired
+    private ClaseNormal claseNormal;
+}
+
+public class ClaseNormal {} 

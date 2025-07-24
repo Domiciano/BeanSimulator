@@ -1,0 +1,7 @@
+public interface Servicio {}
+
+@Component
+public class BeanA {
+    @Autowired
+    private Servicio servicio;
+} 

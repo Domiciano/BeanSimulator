@@ -1,0 +1,5 @@
+@Component("alfa")
+public class BeanA {}
+
+@Component("alfa")
+public class BeanB {} 

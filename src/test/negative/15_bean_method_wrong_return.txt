@@ -1,0 +1,10 @@
+public class BeanA {}
+public class BeanB {}
+
+@Configuration
+public class Config {
+    @Bean
+    public BeanA beanA() {
+        return new BeanB();
+    }
+} 

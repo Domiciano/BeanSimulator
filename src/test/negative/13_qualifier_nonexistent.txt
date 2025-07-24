@@ -1,0 +1,10 @@
+public interface Servicio {}
+
+@Component
+public class ServicioA implements Servicio {}
+
+@Component
+public class BeanB {
+    @Autowired
+    public void setServicio(@Qualifier("noExiste") Servicio servicio) {}
+} 
